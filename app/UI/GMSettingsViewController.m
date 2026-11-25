@@ -94,8 +94,10 @@ static NSString *gm_keychain_get(void) {
     [d synchronize];
     gm_keychain_set(self.keyField.text);
 
-    self.conversation.model = d[@"gm.model"] ?: @"gpt-5.2";
-    self.conversation.effort = d[@"gm.effort"] ?: @"medium";
+    NSString *model = [d stringForKey:@"gm.model"];
+    NSString *effort = [d stringForKey:@"gm.effort"];
+    self.conversation.model = model.length ? model : @"gpt-5.2";
+    self.conversation.effort = effort.length ? effort : @"medium";
     [self.navigationController popViewControllerAnimated:YES];
 }
 
