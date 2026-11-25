@@ -65,6 +65,10 @@ static void *engineThread(void *ctx) {
         GMLog(@"dlsym gm_engine_main 失败: %s", dlerror());
         return NULL;
     }
+    // 告诉引擎 CA 证书位置（iOS 无系统证书路径）
+    NSString *ca = [[NSBundle mainBundle] pathForResource:@"cacert" ofType:@"pem"];
+    if (ca) setenv("GM_CA_FILE", ca.fileSystemRepresentation, 1);
+    GMLog(@"CA: %@", ca ?: @"(缺失)");
     // 把 fd 0/1 指向 socketpair 两端
     dup2(gInFd, STDIN_FILENO);
     dup2(gOutFd, STDOUT_FILENO);

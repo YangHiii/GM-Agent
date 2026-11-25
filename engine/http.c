@@ -5,6 +5,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <unistd.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/time.h>
@@ -29,7 +30,41 @@ static SSL_CTX *ctx_get(void) {
     g_ctx = SSL_CTX_new(TLS_client_method());
     if (!g_ctx) return NULL;
     SSL_CTX_set_min_proto_version(g_ctx, TLS1_2_VERSION);
-    SSL_CTX_set_default_verify_paths(g_ctx);
+
+    /* iOS 没有系统 CA 路径：优先加载随包 cacert.pem（PEM 束），
+       其次是环境变量指定的路径，最后才退回默认路径。 */
+    int loaded = 0;
+    char cand[1024];
+    const char *env = getenv("GM_CA_FILE");
+    if (env && *env) loaded = SSL_CTX_load_verify_locations(g_ctx, env, NULL) == 1;
+    if (!loaded) {
+        const char *names[] = { "cacert.pem", "cacert.cer", NULL };
+        extern char **environ;
+        /* 通过可执行路径推断 bundle 目录 */
+        char exe[1024];
+        ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+        if (n > 0) exe[n] = 0; else exe[0] = 0;
+        char dir[1024];
+        if (exe[0]) {
+            snprintf(dir, sizeof(dir), "%s", exe);
+            char *slash = strrchr(dir, '/');
+            if (slash) *slash = 0;
+        } else {
+            snprintf(dir, sizeof(dir), ".");
+        }
+        for (int i = 0; names[i] && !loaded; i++) {
+            snprintf(cand, sizeof(cand), "%s/%s", dir, names[i]);
+            if (access(cand, R_OK) == 0) {
+                loaded = SSL_CTX_load_verify_locations(g_ctx, cand, NULL) == 1;
+                fprintf(stderr, "[gm] CA: %s -> %s\n", cand, loaded ? "ok" : "fail");
+            }
+        }
+    }
+    if (!loaded) {
+        /* 退路：默认路径 + 系统钥匙串（macOS/iOS 上的 ld-musl 不会有） */
+        SSL_CTX_set_default_verify_paths(g_ctx);
+        fprintf(stderr, "[gm] CA: 未找到 cacert.pem，使用默认路径（iOS 上大概率失败）\n");
+    }
     SSL_CTX_set_verify(g_ctx, SSL_VERIFY_PEER, NULL);
     return g_ctx;
 }
@@ -68,7 +103,7 @@ static int tcp_connect(const char *host, const char *port, int timeout_sec, char
     hints.ai_socktype = SOCK_STREAM;
     int rc = getaddrinfo(host, port, &hints, &res);
     if (rc != 0) {
-        snprintf(err, errcap, "DNS: %s", gai_strerror(rc));
+        snprintf(err, errcap, "域名解析失败(%s)：请检查网关地址是否完整，需形如 https://api.openai.com/v1/chat/completions  原始错误: %s", host, gai_strerror(rc));
         return -1;
     }
     int fd = -1;

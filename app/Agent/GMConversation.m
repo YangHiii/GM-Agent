@@ -2,6 +2,7 @@
 #import "GMConversation.h"
 #import "GMJSON.h"
 #import "GMMessage.h"
+#import "GMLog.h"
 
 @interface GMConversation ()
 @property (nonatomic, strong) GMBridge *bridge;
@@ -30,13 +31,17 @@
 - (NSArray<GMMessage *> *)messages { return _msgs.copy; }
 
 // 首次使用：把设置页/内置默认配置推给引擎，否则引擎没有 key 必然 401
+- (void)pushConfigToEngine {
+    [self configureEngineIfNeeded];
+}
+
 - (void)configureEngineIfNeeded {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     NSString *base = [d stringForKey:@"gm.baseURL"];
     NSString *key = [d stringForKey:@"gm.apiKey"];
     if (!base.length) base = @"https://api.openai.com/v1/chat/completions";
     if (!key.length) {
-        NSLog(@"[GM] 未配置 API Key，请在设置页填写");
+        GMLog(@"未配置 API Key");
         return;
     }
     [self.bridge call:@"gm/config" params:@{@"baseURL": base, @"apiKey": key, @"model": self.model ?: @"gpt-5.2"}

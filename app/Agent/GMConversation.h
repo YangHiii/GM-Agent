@@ -23,6 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)sendUserText:(NSString *)text;
 - (void)cancelCurrentTurn;
 - (void)newThread;
+- (void)pushConfigToEngine;
 @end
 
 NS_ASSUME_NONNULL_END
