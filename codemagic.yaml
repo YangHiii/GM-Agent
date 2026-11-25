@@ -1,0 +1,46 @@
+workflows:
+  ios-adhoc:
+    name: GM Agent (ad-hoc ipa)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: latest
+      vars:
+        OPENSSL_VERSION: "3.5.0"
+    scripts:
+      - name: 编译 OpenSSL
+        script: sh scripts/build-openssl-ios.sh
+      - name: 编译引擎
+        script: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          mkdir -p build
+          clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -std=gnu99 \
+            -Iengine -Ithird_party/openssl/arm64/include \
+            engine/json.c engine/session.c engine/tool.c engine/sse.c \
+            engine/http.c engine/provider.c engine/turn.c engine/main.c \
+            third_party/openssl/arm64/lib/libssl.a \
+            third_party/openssl/arm64/lib/libcrypto.a \
+            -framework Security -framework Foundation -o build/gm-engine
+      - name: 编译 App
+        script: |
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          APP=build/GMAgent.app
+          mkdir -p "$APP"
+          clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -fobjc-arc -fblocks \
+            -Iapp -Iapp/Core -Iapp/UI -Iapp/Agent \
+            app/main.m app/GMAppDelegate.m app/Core/*.m app/UI/*.m app/Agent/*.m \
+            -framework UIKit -framework Foundation -framework CoreGraphics \
+            -framework QuartzCore -framework WebKit -framework Security \
+            -o "$APP/GMAgent"
+          cp app/Resources/Info.plist "$APP/Info.plist"
+          cp build/gm-engine "$APP/gm-engine"
+          chmod +x "$APP/gm-engine"
+          codesign --force --sign - "$APP/gm-engine"
+          codesign --force --sign - --entitlements app/Resources/entitlements.plist --deep "$APP"
+      - name: 打包 ipa
+        script: |
+          rm -rf build/pkg; mkdir -p build/pkg/Payload
+          cp -R build/GMAgent.app build/pkg/Payload/
+          ( cd build/pkg && zip -qry ../GMAgent.ipa Payload )
+    artifacts:
+      - build/GMAgent.ipa
