@@ -63,7 +63,8 @@ static int parse_url(const char *url, char *host, size_t hcap,
 static int tcp_connect(const char *host, const char *port, int timeout_sec, char *err, size_t errcap) {
     struct addrinfo hints, *res = NULL;
     memset(&hints, 0, sizeof(hints));
-    hints.ai_family = AF_UNSPEC;
+    hints.ai_family = (strcmp(host, "127.0.0.1") == 0 || strcmp(host, "localhost") == 0)
+                      ? AF_INET : AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     int rc = getaddrinfo(host, port, &hints, &res);
     if (rc != 0) {
