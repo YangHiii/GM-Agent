@@ -25,9 +25,8 @@ static SSL_CTX *g_ctx = NULL;
 
 static SSL_CTX *ctx_get(void) {
     if (g_ctx) return g_ctx;
-    SSL_library_init();
-    SSL_load_error_strings();
-    OpenSSL_add_all_algorithms();
+    /* OpenSSL 3.x：初始化自动完成，只需设置错误字符串 */
+    ERR_load_crypto_strings();
     g_ctx = SSL_CTX_new(TLS_client_method());
     if (!g_ctx) return NULL;
     SSL_CTX_set_min_proto_version(g_ctx, TLS1_2_VERSION);
