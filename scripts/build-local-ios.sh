@@ -28,7 +28,7 @@ rm -rf "$APP"; mkdir -p "$APP"
 echo "== 编译 App"
 clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -fobjc-arc -fblocks \
   -Iapp -Iapp/Core -Iapp/UI -Iapp/Agent \
-  app/main.m app/GMAppDelegate.m app/Core/*.m app/UI/*.m app/Agent/*.m \
+  app/main.m app/GMAppDelegate.m app/GMLog.m app/Core/*.m app/UI/*.m app/Agent/*.m \
   -framework UIKit -framework Foundation -framework CoreGraphics \
   -framework QuartzCore -framework WebKit -framework Security \
   -o "$APP/GMAgent"

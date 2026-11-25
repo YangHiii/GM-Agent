@@ -3,6 +3,7 @@
 //   1) iOS 13+ + Info.plist 有 UIApplicationSceneManifest → 走 GMSceneDelegate
 //   2) 老式（无 Scene 清单）→ 直接在 didFinishLaunching 建 window
 #import "GMAppDelegate.h"
+#import "GMLog.h"
 #import "GMBridge.h"
 #import "GMConversation.h"
 #import "GMChatViewController.h"
@@ -28,7 +29,7 @@
         _bridge = [GMBridge new];
         NSError *err = nil;
         if (![_bridge startWithError:&err]) {
-            NSLog(@"[GM] 引擎启动失败: %@", err.localizedDescription);
+            GMLog(@"引擎启动失败: %@", err.localizedDescription);
         }
     }
     return _bridge;
@@ -50,14 +51,16 @@
 #pragma mark - 根控制器构造
 
 static UIViewController *GMGLMakeRoot(void) {
+    GMLog(@"building root view controller");
     @try {
         GMChatViewController *chat = [[GMChatViewController alloc]
                                       initWithConversation:GMAppState.shared.conversation];
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:chat];
         nav.navigationBar.prefersLargeTitles = NO;
+        GMLog(@"root VC ready: %@", nav);
         return nav;
     } @catch (NSException *e) {
-        NSLog(@"[GM] 根视图构造失败: %@ %@", e.name, e.reason);
+        GMLog(@"根视图构造失败: %@ %@", e.name, e.reason);
         return [GMSplashViewController new];
     }
 }
@@ -71,13 +74,14 @@ static UIViewController *GMGLMakeRoot(void) {
 @implementation GMAppDelegate
 
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    NSLog(@"[GM] didFinishLaunching, scenes=%ld", (long)application.connectedScenes.count);
+    GMLog(@"didFinishLaunching, scenes=%lu, manifest=%@", (unsigned long)application.connectedScenes.count, [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIApplicationSceneManifest"] ? @"YES" : @"NO");
 
     BOOL usesScenes = (application.supportsMultipleScenes ||
                        [[NSBundle.mainBundle objectForInfoDictionaryKey:@"UIApplicationSceneManifest"] boolValue] != nil);
     NSDictionary *manifest = [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIApplicationSceneManifest"];
 
     if (!manifest) {
+        GMLog(@"no scene manifest -> legacy window path");
         // 老式：直接建 window
         self.gmWindow = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
         self.gmWindow.rootViewController = GMGLMakeRoot();
@@ -112,11 +116,12 @@ configurationForConnectingSceneSession:(UISceneSession *)connectingSceneSession
 
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)connectionOptions {
     if (![scene isKindOfClass:[UIWindowScene class]]) return;
-    NSLog(@"[GM] scene willConnectToSession");
+    GMLog(@"scene willConnectToSession");
     UIWindowScene *ws = (UIWindowScene *)scene;
     self.window = [[UIWindow alloc] initWithWindowScene:ws];
     self.window.frame = ws.coordinateSpace.bounds;
     self.window.rootViewController = GMGLMakeRoot();
+    GMLog(@"window makeKeyAndVisible, root=%@", self.window.rootViewController);
     [self.window makeKeyAndVisible];
 }
 
