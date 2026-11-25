@@ -8,7 +8,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <zlib.h>
-#include <openssl/sha.h>
+#include <openssl/evp.h>
 
 static void seterr(char **err, const char *fmt, ...) {
     if (!err) return;
@@ -250,17 +250,24 @@ int gm_deb_extract(const char *archive, const char *destDir, char **err) {
 int gm_sha256_file(const char *path, char *out) {
     FILE *f = fopen(path, "rb");
     if (!f) return -1;
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (!ctx) { fclose(f); return -1; }
+    if (EVP_DigestInit_ex(ctx, EVP_sha256(), NULL) != 1) {
+        EVP_MD_CTX_free(ctx); fclose(f); return -1;
+    }
     char *buf = malloc(64 * 1024);
-    if (!buf) { fclose(f); return -1; }
+    if (!buf) { EVP_MD_CTX_free(ctx); fclose(f); return -1; }
     size_t n;
-    while ((n = fread(buf, 1, 64 * 1024, f)) > 0) SHA256_Update(&ctx, buf, n);
+    while ((n = fread(buf, 1, 64 * 1024, f)) > 0) EVP_DigestUpdate(ctx, buf, n);
     free(buf);
     fclose(f);
-    unsigned char md[SHA256_DIGEST_LENGTH];
-    SHA256_Final(md, &ctx);
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) sprintf(out + i * 2, "%02x", md[i]);
+    unsigned char md[EVP_MAX_MD_SIZE];
+    unsigned int mdlen = 0;
+    if (EVP_DigestFinal_ex(ctx, md, &mdlen) != 1 || mdlen != 32) {
+        EVP_MD_CTX_free(ctx); return -1;
+    }
+    EVP_MD_CTX_free(ctx);
+    for (int i = 0; i < 32; i++) sprintf(out + i * 2, "%02x", md[i]);
     out[64] = 0;
     return 0;
 }
