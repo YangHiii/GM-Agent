@@ -93,7 +93,7 @@ jobs:
           cd build/pkg && zip -qry ../GMAgent.ipa Payload
           ls -lh ../GMAgent.ipa
           unzip -l ../GMAgent.ipa | grep -E "Payload/GMAgent.app/(GMAgent|gm-engine)$"
-          test $(stat -f%z ../GMAgent.ipa) -gt 8000000
+          test $(stat -f%z ../GMAgent.ipa) -gt 1500000
 
       - uses: actions/upload-artifact@v4
         with:

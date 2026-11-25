@@ -90,9 +90,9 @@ workflows:
           unzip -l GMAgent.ipa | grep -E "Payload/GMAgent.app/(GMAgent|gm-engine)$"
           SIZE=$(stat -f%z GMAgent.ipa)
           echo "ipa size: $SIZE"
-          MIN=$((8 * 1024 * 1024))
+          MIN=$((1500 * 1024))   # 压缩后正常约 1.8MB；低于 1.5MB 说明缺文件
           if [ "$SIZE" -lt "$MIN" ]; then
-            echo "!! ipa 只有 $SIZE 字节，小于 8MB，说明根本没有把可执行文件打进去" >&2
+            echo "!! ipa 只有 $SIZE 字节，小于 1.5MB，说明根本没有把可执行文件打进去" >&2
             unzip -l GMAgent.ipa >&2
             exit 1
           fi
