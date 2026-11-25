@@ -5,4 +5,5 @@
 
 @interface GMSettingsViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
 @property (nonatomic, strong) UITableView *tableView;
+- (instancetype)initWithConversation:(GMConversation *)conversation;
 @end

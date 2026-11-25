@@ -80,9 +80,14 @@ static NSString *const kManifestURL =
     [self.envRows addObject:@{@"t": @"容器外写入", @"s": canWrite ? @"/var/mobile 可写" : @"被拒绝",
                               @"ok": @(canWrite)}];
 
-    // 能否 exec 系统二进制
-    int rc = system("/usr/bin/true 2>/dev/null");
-    BOOL canExec = (rc == 0);
+    // 能否 exec 系统二进制（iOS 禁用 system()，用 popen 探测）
+    BOOL canExec = NO;
+    FILE *tf = popen("true 2>/dev/null; echo $?", "r");
+    if (tf) {
+        char tb[8] = {0};
+        if (fgets(tb, sizeof(tb), tf) && tb[0] == '0') canExec = YES;
+        pclose(tf);
+    }
     [self.envRows addObject:@{@"t": @"系统命令执行", @"s": canExec ? @"/usr/bin 可执行" : @"被拒绝或不存在",
                               @"ok": @(canExec)}];
 
