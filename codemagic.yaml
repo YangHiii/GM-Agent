@@ -11,15 +11,21 @@ workflows:
       cache_paths:
         - $HOME/openssl-cache
     scripts:
+      # ---- 每个块都以 set -eu 开头：任何命令失败立刻中断，绝不产出空壳包 ----
       - name: 清理
         script: |
+          set -eu
           echo "workspace: $(pwd)"
-          ls -la
-          rm -rf build 2>/dev/null || true
+          rm -rf build
+
       - name: 编译 OpenSSL
-        script: sh scripts/build-openssl-ios.sh
+        script: |
+          set -eu
+          sh scripts/build-openssl-ios.sh
+
       - name: 编译引擎
         script: |
+          set -eu
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           mkdir -p build
           clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -std=gnu99 \
@@ -28,9 +34,14 @@ workflows:
             engine/http.c engine/provider.c engine/turn.c engine/main.c \
             third_party/openssl/arm64/lib/libssl.a \
             third_party/openssl/arm64/lib/libcrypto.a \
-            -framework Security -framework Foundation -lz -o build/gm-engine
+            -framework Security -framework Foundation -lz \
+            -o build/gm-engine
+          test -s build/gm-engine
+          file build/gm-engine | grep -q "Mach-O 64-bit executable arm64"
+
       - name: 编译 App
         script: |
+          set -eu
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           APP=build/GMAgent.app
           mkdir -p "$APP"
@@ -40,15 +51,51 @@ workflows:
             -framework UIKit -framework Foundation -framework CoreGraphics \
             -framework QuartzCore -framework WebKit -framework Security \
             -o "$APP/GMAgent"
+          test -s "$APP/GMAgent"
+
+      - name: 组装 Bundle
+        script: |
+          set -eu
+          APP=build/GMAgent.app
           cp app/Resources/Info.plist "$APP/Info.plist"
           cp build/gm-engine "$APP/gm-engine"
-          chmod +x "$APP/gm-engine"
+          chmod +x "$APP/GMAgent" "$APP/gm-engine"
+          ls -la "$APP"
+          # 自检：可执行文件必须在，且是 arm64
+          test -x "$APP/GMAgent"
+          test -x "$APP/gm-engine"
+          file "$APP/GMAgent"
+          file "$APP/gm-engine"
+
+      - name: 签名
+        script: |
+          set -eu
+          APP=build/GMAgent.app
+          ENT=app/Resources/entitlements.plist
           codesign --force --sign - "$APP/gm-engine"
-          codesign --force --sign - --entitlements app/Resources/entitlements.plist --deep "$APP"
+          codesign --force --sign - --entitlements "$ENT" --deep "$APP"
+          codesign --verify --deep --verbose=2 "$APP" || true
+          codesign -dv --verbose=4 "$APP" 2>&1 | head -10 || true
+
       - name: 打包 ipa
         script: |
-          rm -rf build/pkg; mkdir -p build/pkg/Payload
+          set -eu
+          rm -rf build/pkg
+          mkdir -p build/pkg/Payload
           cp -R build/GMAgent.app build/pkg/Payload/
-          ( cd build/pkg && zip -qry ../GMAgent.ipa Payload )
+          cd build/pkg
+          zip -qry ../GMAgent.ipa Payload
+          cd ..
+          # 自检：ipa 里必须有主二进制，大小必须合理
+          unzip -l GMAgent.ipa | grep -E "Payload/GMAgent.app/(GMAgent|gm-engine)$"
+          SIZE=$(stat -f%z GMAgent.ipa)
+          echo "ipa size: $SIZE"
+          MIN=$((8 * 1024 * 1024))
+          if [ "$SIZE" -lt "$MIN" ]; then
+            echo "!! ipa 只有 $SIZE 字节，小于 8MB，说明根本没有把可执行文件打进去" >&2
+            unzip -l GMAgent.ipa >&2
+            exit 1
+          fi
+
     artifacts:
       - build/GMAgent.ipa

@@ -72,7 +72,9 @@ jobs:
             -o "$APP/GMAgent"
           cp app/Resources/Info.plist "$APP/Info.plist"
           cp build/gm-engine "$APP/gm-engine"
-          chmod +x "$APP/gm-engine"
+          chmod +x "$APP/GMAgent" "$APP/gm-engine"
+          ls -la "$APP"
+          test -x "$APP/GMAgent"
 
       - name: Ad-hoc 签名
         run: |
@@ -90,6 +92,8 @@ jobs:
           cp -R build/GMAgent.app build/pkg/Payload/
           cd build/pkg && zip -qry ../GMAgent.ipa Payload
           ls -lh ../GMAgent.ipa
+          unzip -l ../GMAgent.ipa | grep -E "Payload/GMAgent.app/(GMAgent|gm-engine)$"
+          test $(stat -f%z ../GMAgent.ipa) -gt 8000000
 
       - uses: actions/upload-artifact@v4
         with:
