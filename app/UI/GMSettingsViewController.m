@@ -73,13 +73,83 @@ static NSString *kcGet(void) {
 
     self.keyField = [self makeField:@"sk-…" secure:YES];
     self.keyField.text = kcGet();
+    // 键盘上浮板：粘贴按钮，方便直接贴 key
+    UIToolbar *bar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
+    bar.items = @[
+        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
+        [[UIBarButtonItem alloc] initWithTitle:@"粘贴" style:UIBarButtonItemStylePlain
+                                        target:self action:@selector(pasteKey)],
+        [[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone
+                                        target:self action:@selector(dismissKeyboard)],
+    ];
+    [bar sizeToFit];
+    self.keyField.inputAccessoryView = bar;
+    self.urlField.inputAccessoryView = bar;
     [self.keyField addTarget:self action:@selector(keyChanged) forControlEvents:UIControlEventEditingDidEnd];
+
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(keyboardFrameChanged:)
+                                              name:UIKeyboardWillChangeFrameNotification
+                                            object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(keyboardFrameChanged:)
+                                              name:UIKeyboardWillShowNotification
+                                            object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(keyboardFrameChanged:)
+                                              name:UIKeyboardWillHideNotification
+                                            object:nil];
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
+                                                                         action:@selector(dismissKeyboard)];
+    tap.cancelsTouchesInView = NO;
+    [self.tableView addGestureRecognizer:tap];
 
     self.model = [d stringForKey:@"gm.model"] ?: @"";
     self.models = @[];
     if (self.urlField.text.length && self.model.length) {
         [self fetchModelsQuietly];
     }
+}
+
+- (void)dismissKeyboard {
+    [self.view endEditing:YES];
+}
+
+- (void)keyboardFrameChanged:(NSNotification *)note {
+    NSDictionary *info = note.userInfo;
+    CGRect end = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    NSTimeInterval dur = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    CGRect inView = [self.view convertRect:end fromView:nil];
+    CGFloat overlap = CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(inView);
+    CGFloat inset = MAX(0, overlap - self.view.safeAreaInsets.bottom);
+    UIEdgeInsets ei = self.tableView.contentInset;
+    ei.bottom = inset + 8;
+    self.tableView.contentInset = ei;
+    self.tableView.scrollIndicatorInsets = ei;
+    if (dur <= 0) dur = 0.25;
+    [UIView animateWithDuration:dur animations:^{
+        [self.view layoutIfNeeded];
+    }];
+    // 让当前聚焦的输入框可见
+    UIView *first = [self findFirstResponder:self.view];
+    if (first) {
+        UITableViewCell *cell = (UITableViewCell *)first.superview.superview;
+        if ([cell isKindOfClass:[UITableViewCell class]]) {
+            NSIndexPath *ip = [self.tableView indexPathForCell:cell];
+            if (ip) [self.tableView scrollToRowAtIndexPath:ip
+                                          atScrollPosition:UITableViewScrollPositionMiddle
+                                                  animated:YES];
+        }
+    }
+}
+
+- (UIView *)findFirstResponder:(UIView *)v {
+    if (v.isFirstResponder) return v;
+    for (UIView *sub in v.subviews) {
+        UIView *r = [self findFirstResponder:sub];
+        if (r) return r;
+    }
+    return nil;
 }
 
 - (UITextField *)makeField:(NSString *)ph secure:(BOOL)secure {
@@ -127,6 +197,15 @@ static NSString *kcGet(void) {
     NSString *b = [self normalizedBase];
     if (!b.length) return @"";
     return [b stringByAppendingString:@"/models"];
+}
+
+- (void)pasteKey {
+    NSString *s = [UIPasteboard generalPasteboard].string;
+    if (s.length) {
+        self.keyField.text = [s stringByTrimmingCharactersInSet:
+                              [NSCharacterSet whitespaceAndNewlineCharacterSet]];
+        if (self.models.count == 0) [self fetchModelsQuietly];
+    }
 }
 
 - (void)urlChanged {
@@ -248,17 +327,18 @@ static NSString *kcGet(void) {
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 4; }
 
 - (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
-    return @[@"网关地址", @"模型", @"状态", @"操作"][s];
+    return @[@"连接", @"模型", @"状态", @"操作"][s];
 }
 
 - (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)s {
-    if (s == 0) return @"填到 /v1 即可，如 https://api.deepseek.com/v1；会自动补 /chat/completions";
+    if (s == 0) return @"地址填到 /v1 即可（如 https://api.deepseek.com/v1），会自动补 /chat/completions";
     if (s == 1) return @"点这一行选择模型；列表会自动从服务端 /models 获取";
     return nil;
 }
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
-    return s == 3 ? 2 : 1;
+    if (s == 0) return 2;      // 地址 + Key（都在顶部，键盘挡不到）
+    return 1;
 }
 
 - (CGFloat)tableView:(UITableView *)tv heightForRowAtIndexPath:(NSIndexPath *)ip {
@@ -276,8 +356,13 @@ static NSString *kcGet(void) {
     c.textLabel.textColor = UIColor.labelColor;
 
     if (ip.section == 0) {
-        c.textLabel.text = @"地址";
-        [self attachField:self.urlField toCell:c];
+        if (ip.row == 0) {
+            c.textLabel.text = @"地址";
+            [self attachField:self.urlField toCell:c];
+        } else {
+            c.textLabel.text = @"API Key";
+            [self attachField:self.keyField toCell:c];
+        }
     } else if (ip.section == 1) {
         c.textLabel.text = @"模型";
         c.detailTextLabel.text = self.model.length ? self.model : @"未选择";
@@ -292,14 +377,9 @@ static NSString *kcGet(void) {
                                 ([self.statusText hasPrefix:@"获取失败"] || [self.statusText hasPrefix:@"未获取"]
                                  ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor);
     } else {
-        if (ip.row == 0) {
-            c.textLabel.text = @"测试连接";
-            c.textLabel.textColor = UIColor.systemBlueColor;
-            c.selectionStyle = UITableViewCellSelectionStyleDefault;
-        } else {
-            c.textLabel.text = @"API Key";
-            [self attachField:self.keyField toCell:c];
-        }
+        c.textLabel.text = @"测试连接";
+        c.textLabel.textColor = UIColor.systemBlueColor;
+        c.selectionStyle = UITableViewCellSelectionStyleDefault;
     }
     return c;
 }
@@ -307,6 +387,8 @@ static NSString *kcGet(void) {
 // 关键：把输入框放进 contentView 并约束，避免被裁切/遮挡
 - (void)attachField:(UITextField *)field toCell:(UITableViewCell *)cell {
     if (field.superview == cell.contentView) return;
+    [field.superview removeConstraints:field.constraints];
+    [NSLayoutConstraint deactivateConstraints:field.constraints];
     [field removeFromSuperview];
     [cell.contentView addSubview:field];
     [NSLayoutConstraint activateConstraints:@[
@@ -322,7 +404,7 @@ static NSString *kcGet(void) {
     if (ip.section == 1) {
         [self.view endEditing:YES];
         [self pickModel];
-    } else if (ip.section == 3 && ip.row == 0) {
+    } else if (ip.section == 3) {
         [self.view endEditing:YES];
         [self testConnection];
     }
