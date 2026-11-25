@@ -65,31 +65,70 @@ static NSString *RuntimeRoot(void) {
 - (void)buildEnvRows {
     self.envRows = [NSMutableArray array];
 
-    BOOL troll = access("/var/containers/Bundle/trollstore", F_OK) == 0;
-    BOOL jb = access("/var/jb", F_OK) == 0;
-    BOOL sandbox = NO;
-    BOOL noSandbox = access("/usr/bin/ssh", F_OK) == 0 || access("/private/var/mobile", F_OK) == 0;
-    sandbox = !noSandbox;
+    // ---- 1. 沙箱是否突破：实测能否读沙箱外 ----
+    NSFileManager *fm = [NSFileManager defaultManager];
+    BOOL canReadOutside = [fm isReadableFileAtPath:@"/var/mobile/Library/Preferences"];
+    BOOL canListBundleDir = [fm isReadableFileAtPath:@"/var/containers/Bundle/Application"];
+    BOOL canReadJB = [fm isReadableFileAtPath:@"/var/jb"];
+
+    // ---- 2. 越狱探测：roothide 的根是随机化的 .jbroot-XXXX ----
+    BOOL jbRoot = canReadJB;
+    NSString *jbPath = @"/var/jb";
+    if (!jbRoot) {
+        NSArray *items = [fm contentsOfDirectoryAtPath:@"/var/containers/Bundle/Application" error:nil];
+        for (NSString *it in items) {
+            if ([it hasPrefix:@".jbroot"] || [it containsString:@"jbroot"]) {
+                jbRoot = YES;
+                jbPath = [@"/var/containers/Bundle/Application" stringByAppendingPathComponent:it];
+                break;
+            }
+        }
+    }
+    if (!jbRoot) {
+        // Dopamine / palera1n 常见痕迹
+        const char *marks[] = {
+            "/usr/lib/libjailbreak.dylib",
+            "/var/lib/dpkg/status",
+            "/var/mobile/Library/Sileo",
+            "/var/mobile/Library/Preferences/com.saurik.Cydia.plist",
+            NULL
+        };
+        for (int i = 0; marks[i]; i++) {
+            if (access(marks[i], F_OK) == 0) { jbRoot = YES; jbPath = [NSString stringWithUTF8String:marks[i]]; break; }
+        }
+    }
+
+    // ---- 3. TrollStore 判定：bundle 位于 /var/containers/Bundle/Application 即侧载 ----
+    NSString *bundlePath = [NSBundle mainBundle].bundlePath;
+    BOOL troll = [bundlePath containsString:@"/var/containers/Bundle/Application/"];
 
     NSString *ver = [UIDevice currentDevice].systemVersion;
     NSString *model = [UIDevice currentDevice].model;
 
     [self.envRows addObject:@{@"t": @"系统", @"s": [NSString stringWithFormat:@"%@ · iOS %@", model, ver]}];
-    [self.envRows addObject:@{@"t": @"TrollStore", @"s": troll ? @"已安装" : @"未检测到",
+    [self.envRows addObject:@{@"t": @"安装方式", @"s": troll ? @"TrollStore / 侧载（容器外路径）" : bundlePath,
                               @"ok": @(troll)}];
-    [self.envRows addObject:@{@"t": @"越狱环境", @"s": jb ? @"已检测到 /var/jb" : @"未检测到 /var/jb",
-                              @"ok": @(jb)}];
-    [self.envRows addObject:@{@"t": @"沙箱", @"s": sandbox ? @"受限（未获得 no-sandbox）" : @"已突破（no-sandbox 生效）",
-                              @"ok": @(!sandbox)}];
+    [self.envRows addObject:@{@"t": @"越狱环境", @"s": jbRoot ? jbPath : @"未检测到越狱根",
+                              @"ok": @(jbRoot)}];
+    [self.envRows addObject:@{@"t": @"沙箱", @"s": canReadOutside ? @"已突破（可读容器外）" : @"受限（no-sandbox 未生效）",
+                              @"ok": @(canReadOutside)}];
+    [self.envRows addObject:@{@"t": @"系统目录可读", @"s": canListBundleDir ? @"/var/containers/Bundle/Application ✓" : @"不可读",
+                              @"ok": @(canListBundleDir)}];
 
-    // 能否写容器外
-    NSString *probe = @"/var/mobile/gm_probe";
-    BOOL canWrite = [@"x" writeToFile:probe atomically:YES encoding:NSUTF8StringEncoding error:nil];
-    if (canWrite) [[NSFileManager defaultManager] removeItemAtPath:probe error:nil];
+    // ---- 4. 容器外写入实测 ----
+    BOOL canWrite = NO;
+    NSString *probe = @"/var/mobile/gm-probe.txt";
+    canWrite = [@"x" writeToFile:probe atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    if (canWrite) [fm removeItemAtPath:probe error:nil];
+    if (!canWrite) {
+        probe = [NSTemporaryDirectory() stringByAppendingPathComponent:@"gm-probe.txt"];
+        canWrite = [@"x" writeToFile:probe atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        if (canWrite) [fm removeItemAtPath:probe error:nil];
+    }
     [self.envRows addObject:@{@"t": @"容器外写入", @"s": canWrite ? @"/var/mobile 可写" : @"被拒绝",
                               @"ok": @(canWrite)}];
 
-    // 能否 exec 系统二进制（iOS 禁用 system()，用 popen 探测）
+    // ---- 5. 能否执行系统命令 ----
     BOOL canExec = NO;
     FILE *tf = popen("true 2>/dev/null; echo $?", "r");
     if (tf) {
@@ -97,7 +136,7 @@ static NSString *RuntimeRoot(void) {
         if (fgets(tb, sizeof(tb), tf) && tb[0] == '0') canExec = YES;
         pclose(tf);
     }
-    [self.envRows addObject:@{@"t": @"系统命令执行", @"s": canExec ? @"/usr/bin 可执行" : @"被拒绝或不存在",
+    [self.envRows addObject:@{@"t": @"系统命令执行", @"s": canExec ? @"可用" : @"被拒绝",
                               @"ok": @(canExec)}];
 
     [self.tableView reloadData];
@@ -244,10 +283,11 @@ static NSString *RuntimeRoot(void) {
 
 #pragma mark - Table
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 3; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 4; }
 
 - (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
     if (s == 2) return self.loadingRuntimes ? @"运行时（加载中…）" : @"运行时（点击安装）";
+    if (s == 3) return @"诊断";
     return @[@"运行环境", @"内置工具"][s];
 }
 
@@ -261,6 +301,7 @@ static NSString *RuntimeRoot(void) {
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
     if (s == 0) return self.envRows.count;
     if (s == 1) return self.tools.count;
+    if (s == 3) return 2;
     return MAX(1, self.runtimes.count);
 }
 
@@ -271,6 +312,15 @@ static NSString *RuntimeRoot(void) {
     c.accessoryType = UITableViewCellAccessoryNone;
     c.selectionStyle = UITableViewCellSelectionStyleNone;
     c.textLabel.textColor = UIColor.labelColor;
+
+    if (ip.section == 3) {
+        c.textLabel.text = ip.row == 0 ? @"查看启动日志" : @"复制日志路径";
+        c.textLabel.textColor = UIColor.systemBlueColor;
+        c.detailTextLabel.text = GMLogPath();
+        c.selectionStyle = UITableViewCellSelectionStyleDefault;
+        c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        return c;
+    }
 
     NSDictionary *row = nil;
     if (ip.section == 0 && ip.row < self.envRows.count) row = self.envRows[ip.row];
@@ -298,6 +348,28 @@ static NSString *RuntimeRoot(void) {
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
+    if (ip.section == 3) {
+        if (ip.row == 0) {
+            NSString *content = [NSString stringWithContentsOfFile:GMLogPath()
+                                                         encoding:NSUTF8StringEncoding error:nil];
+            if (!content.length) content = @"(日志为空或文件不存在)";
+            UITextView *tv2 = [[UITextView alloc] init];
+            tv2.text = content;
+            tv2.editable = NO;
+            tv2.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
+            UIViewController *vc = [UIViewController new];
+            vc.title = @"启动日志";
+            vc.view.backgroundColor = UIColor.systemBackgroundColor;
+            tv2.frame = vc.view.bounds;
+            tv2.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+            [vc.view addSubview:tv2];
+            [self.navigationController pushViewController:vc animated:YES];
+        } else {
+            [UIPasteboard generalPasteboard].string = GMLogPath();
+            [self alert:[NSString stringWithFormat:@"路径已复制：\n%@", GMLogPath()]];
+        }
+        return;
+    }
     if (ip.section != 2 || self.runtimes.count == 0) return;
     NSDictionary *row = self.runtimes[ip.row];
     NSString *url = row[@"url"];

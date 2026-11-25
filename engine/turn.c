@@ -98,6 +98,32 @@ int gm_turn_run(GMArena *arena, const GMProvider *prov, GMSession *session,
         char *err = NULL;
         int rc = gm_provider_chat(prov, bj.p, on_delta, &t, on_tool, &t, finish, sizeof(finish),
                                   &tin, &tout, &err);
+
+        /* 部分模型（如 deepseek-reasoner）不支持 tools：
+           若返回 400 且错误体提到 tool/function，自动去掉 tools 重试一次 */
+        if (rc != 0 && err && strstr(err, "400") &&
+            (strstr(err, "tool") || strstr(err, "function") || strstr(err, "Tool"))) {
+            fprintf(stderr, "[gm] 模型不支持 tools，去掉后重试\n");
+            GMArena body2;
+            gm_arena_init(&body2, 4 * 1024 * 1024);
+            GMPVal *b2 = gm_val_obj(&body2);
+            gm_obj_set(&body2, b2, "model", gm_val_str(&body2, prov->model));
+            gm_obj_set(&body2, b2, "stream", gm_val_true(&body2, 1));
+            gm_obj_set(&body2, b2, "messages", messages);
+            GMBuf bj2;
+            gm_buf_init(&bj2, &body2, 4096);
+            gm_write_val(&bj2, b2);
+
+            t.any = 0;
+            t.tc_count = 0;
+            finish[0] = 0;
+            tin = tout = 0;
+            free(err);
+            err = NULL;
+            rc = gm_provider_chat(prov, bj2.p, on_delta, &t, on_tool, &t, finish, sizeof(finish),
+                                  &tin, &tout, &err);
+            gm_arena_free(&body2);
+        }
         gm_arena_free(&bodyArena);
 
         if (rc != 0) {

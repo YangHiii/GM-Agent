@@ -71,7 +71,7 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist" | tee /tmp/ver.txt
           V=$(cat /tmp/ver.txt | tr -d ' ')
-          test "$V" = "132" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
+          test "$V" = "133" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
           # 自检：可执行文件必须在，且是 arm64
           test -x "$APP/GMAgent"
           test -s "$APP/libgm-engine.dylib"
@@ -87,6 +87,13 @@ workflows:
           codesign --force --sign - --entitlements "$ENT" --deep "$APP"
           codesign --verify --deep --verbose=2 "$APP" || true
           codesign -dv --verbose=4 "$APP" 2>&1 | head -10 || true
+          echo "=== 已注入的 entitlements ==="
+          codesign -d --entitlements :- "$APP" 2>/dev/null > /tmp/ent.plist || true
+          cat /tmp/ent.plist
+          # 自检：必须有 platform-application 与 no-sandbox
+          grep -q "platform-application" /tmp/ent.plist || { echo "!! 缺少 platform-application"; exit 1; }
+          grep -q "no-sandbox" /tmp/ent.plist || { echo "!! 缺少 no-sandbox"; exit 1; }
+          echo "=== entitlements 校验通过 ==="
 
       - name: 打包 ipa
         script: |

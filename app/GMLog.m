@@ -30,9 +30,12 @@ void GMLog(NSString *fmt, ...) {
     });
     dispatch_async(q, ^{
         NSString *line = [NSString stringWithFormat:@"%@ %@\n", ts, msg];
-        NSString *path = GMLogPath();
-        FILE *f = fopen(path.UTF8String, "a");
-        if (f) {
+        NSArray *paths = @[GMLogPath(),
+                           @"/var/mobile/Documents/gm-agent.log",
+                           @"/var/mobile/gm-agent.log"];
+        for (NSString *path in paths) {
+            FILE *f = fopen(path.UTF8String, "a");
+            if (!f) continue;
             fputs(line.UTF8String, f);
             fclose(f);
         }

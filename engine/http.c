@@ -146,6 +146,12 @@ static int read_some(SSL *ssl, int fd, char *buf, size_t cap) {
     return (int)n;
 }
 
+int gm_http_resp_status(const void *resp) {
+    if (!resp) return 0;
+    const GMHttpResp *r = (const GMHttpResp *)resp;
+    return r->status;
+}
+
 int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body, void *ctx) {
     memset(resp, 0, sizeof(*resp));
     resp->status = 0;

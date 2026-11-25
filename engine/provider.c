@@ -9,6 +9,9 @@
 
 typedef struct {
     GMArena arena;          /* 跨 SSE 帧存活 */
+    GMHttpResp *resp;   /* 用于判断 status，捕获错误体 */
+    char errbuf[4096];
+    size_t errlen;
     GMDeltaFn on_delta;
     void *dctx;
     GMToolCallFn on_tool;
@@ -17,6 +20,7 @@ typedef struct {
     char *tc_id[16];
     char *tc_name[16];
     GMBuf tc_args[16];
+    void *sse;
     int tc_count;
     int done;
     char finish_reason[32];
@@ -26,7 +30,20 @@ typedef struct {
 } StreamCtx;
 
 static void http_body_cb(void *ctx, const char *data, size_t len) {
-    gm_sse_feed((GMSseParser *)ctx, data, len);
+    StreamCtx *c = (StreamCtx *)ctx;
+    int status = c->resp ? gm_http_resp_status(c->resp) : 200;
+    if (status >= 400) {
+        /* 只收集错误响应体，供 UI 显示 */
+        size_t n = len;
+        if (c->errlen + n > sizeof(c->errbuf) - 1) n = sizeof(c->errbuf) - 1 - c->errlen;
+        if (n) {
+            memcpy(c->errbuf + c->errlen, data, n);
+            c->errlen += n;
+            c->errbuf[c->errlen] = 0;
+        }
+        return;
+    }
+    gm_sse_feed((GMSseParser *)c->sse, data, len);
 }
 
 static void sse_data(void *ctx, const char *data, size_t len) {
@@ -113,6 +130,7 @@ int gm_provider_chat(const GMProvider *p, const char *body_json,
 
     GMSseParser sse;
     gm_sse_init(&sse, sse_data, &c);
+    c.sse = &sse;
 
     GMHttpReq req;
     memset(&req, 0, sizeof(req));
@@ -125,7 +143,10 @@ int gm_provider_chat(const GMProvider *p, const char *body_json,
     req.timeout_sec = 300;
 
     GMHttpResp resp;
-    int rc = gm_http_perform(&req, &resp, http_body_cb, &sse);
+    c.resp = &resp;
+    /* 打印请求体前缀，便于诊断 400 */
+    fprintf(stderr, "[gm] POST %s\n[gm] body: %.600s\n", p->base_url, body_json);
+    int rc = gm_http_perform(&req, &resp, http_body_cb, &c);
 
     gm_sse_finish(&sse);
     gm_arena_reset(&c.arena);
@@ -142,8 +163,12 @@ int gm_provider_chat(const GMProvider *p, const char *body_json,
     } else if (resp.status >= 400) {
         failed = 1;
         if (err_out) {
-            char tmp[256];
-            snprintf(tmp, sizeof(tmp), "HTTP %d", resp.status);
+            char tmp[4600];
+            if (c.errlen) {
+                snprintf(tmp, sizeof(tmp), "HTTP %d\n%s", resp.status, c.errbuf);
+            } else {
+                snprintf(tmp, sizeof(tmp), "HTTP %d（服务器无响应体）", resp.status);
+            }
             char *e = malloc(strlen(tmp) + 1);
             if (e) strcpy(e, tmp);
             *err_out = e;

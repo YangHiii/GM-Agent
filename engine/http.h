@@ -27,4 +27,7 @@ typedef struct GMHttpResp {
 /* 阻塞请求；body 分块回调（chunked 自动解包）。返回 0 成功 */
 int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body, void *ctx);
 
+/* 读取响应状态码（供回调中判断是否错误体） */
+int gm_http_resp_status(const void *resp);
+
 #endif
