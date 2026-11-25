@@ -1,0 +1,7 @@
+build/
+*.o
+*.ipa
+*.tipa
+.DS_Store
+__pycache__/
+third_party/openssl/

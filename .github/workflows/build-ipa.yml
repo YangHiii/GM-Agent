@@ -1,0 +1,104 @@
+name: build-ipa
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  engine-test:
+    name: 引擎回归（Linux）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装依赖
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libssl-dev
+      - name: 回归测试
+        run: sh scripts/test_engine.sh
+
+  build:
+    name: 构建 ipa（iOS arm64）
+    runs-on: macos-14
+    needs: engine-test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 工具链
+        run: |
+          xcrun --sdk iphoneos --show-sdk-path
+          clang --version | head -1
+
+      - name: 缓存 OpenSSL
+        uses: actions/cache@v4
+        id: ossl
+        with:
+          path: third_party/openssl
+          key: openssl-ios-arm64-v1
+
+      - name: 编译 OpenSSL（首次约 8 分钟）
+        if: steps.ossl.outputs.cache-hit != 'true'
+        run: sh scripts/build-openssl-ios.sh
+
+      - name: 编译引擎
+        run: |
+          set -eux
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          mkdir -p build
+          clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -std=gnu99 \
+            -Iengine -Ithird_party/openssl/arm64/include \
+            engine/json.c engine/session.c engine/tool.c engine/sse.c \
+            engine/http.c engine/provider.c engine/turn.c engine/main.c \
+            third_party/openssl/arm64/lib/libssl.a \
+            third_party/openssl/arm64/lib/libcrypto.a \
+            -framework Security -framework Foundation \
+            -o build/gm-engine
+          file build/gm-engine
+
+      - name: 编译 App
+        run: |
+          set -eux
+          SDK=$(xcrun --sdk iphoneos --show-sdk-path)
+          APP=build/GMAgent.app
+          mkdir -p "$APP"
+          clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 \
+            -fobjc-arc -fblocks \
+            -Iapp -Iapp/Core -Iapp/UI -Iapp/Agent \
+            app/main.m app/GMAppDelegate.m \
+            app/Core/*.m app/UI/*.m app/Agent/*.m \
+            -framework UIKit -framework Foundation -framework CoreGraphics \
+            -framework QuartzCore -framework WebKit -framework Security \
+            -o "$APP/GMAgent"
+          cp app/Resources/Info.plist "$APP/Info.plist"
+          cp build/gm-engine "$APP/gm-engine"
+          chmod +x "$APP/gm-engine"
+
+      - name: Ad-hoc 签名
+        run: |
+          set -eux
+          APP=build/GMAgent.app
+          ENT=app/Resources/entitlements.plist
+          codesign --force --sign - "$APP/gm-engine"
+          codesign --force --sign - --entitlements "$ENT" --deep "$APP"
+          codesign -dv --verbose=2 "$APP" 2>&1 | head -5 || true
+
+      - name: 打包 ipa
+        run: |
+          set -eux
+          rm -rf build/pkg && mkdir -p build/pkg/Payload
+          cp -R build/GMAgent.app build/pkg/Payload/
+          cd build/pkg && zip -qry ../GMAgent.ipa Payload
+          ls -lh ../GMAgent.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GMAgent-ipa
+          path: build/GMAgent.ipa
+          retention-days: 30
+
+      - name: 附加到 Release（打 tag 时）
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/GMAgent.ipa
