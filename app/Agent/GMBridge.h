@@ -11,6 +11,7 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 @interface GMBridge : NSObject
++ (instancetype)shared;
 @property (nonatomic, weak) id<GMBridgeDelegate> delegate;
 @property (nonatomic, readonly) BOOL running;
 

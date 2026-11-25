@@ -3,6 +3,8 @@
 // - 运行时清单（从 CodexApp-Runtime manifest 拉取，可下载解压）
 // - 内置工具探测（git/rg/curl/python/node/clang）
 #import "GMDevViewController.h"
+#import "GMBridge.h"
+#import "GMLog.h"
 #include <stdio.h>
 #include <unistd.h>
 
@@ -22,8 +24,15 @@ static NSString *const kManifestURL =
 }
 @end
 
+static NSString *RuntimeRoot(void) {
+    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    return [lib stringByAppendingPathComponent:@"Runtimes"];
+}
+
 @interface GMDevViewController ()
 @property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, copy) NSString *installing;
+@property (nonatomic, copy) NSString *installNote;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *envRows;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *runtimes;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *tools;
@@ -148,12 +157,18 @@ static NSString *const kManifestURL =
                         NSDictionary *v = rts[k];
                         NSString *url = v[@"archive_url"] ?: @"";
                         NSString *sha = v[@"archive_sha256"] ?: @"";
+                        NSString *dir = [RuntimeRoot() stringByAppendingPathComponent:k];
+                        BOOL installed = [[NSFileManager defaultManager] fileExistsAtPath:dir];
+                        NSString *sub = installed
+                            ? [NSString stringWithFormat:@"已安装 · %@", dir.lastPathComponent]
+                            : (url.lastPathComponent.length ? url.lastPathComponent : @"(无包名)");
                         [rows addObject:@{
                             @"t": k,
-                            @"s": url.lastPathComponent.length ? url.lastPathComponent : @"(无包名)",
+                            @"s": sub,
                             @"url": url,
                             @"sha": sha,
-                            @"ok": @YES
+                            @"ok": @(installed),
+                            @"installed": @(installed)
                         }];
                     }
                 } else {
@@ -164,6 +179,61 @@ static NSString *const kManifestURL =
             [s.tableView reloadData];
         });
     }] resume];
+}
+
+- (void)installRuntime:(NSString *)name url:(NSString *)url sha:(NSString *)sha {
+    self.installing = name;
+    self.installNote = @"准备下载…";
+    [self.tableView reloadData];
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(runtimeEvent:)
+                                                 name:@"gm.runtime"
+                                               object:nil];
+    GMLog(@"安装运行时 %@ <- %@", name, url);
+    [[GMBridge shared] call:@"gm/runtime/install"
+                     params:@{@"name": name, @"url": url, @"sha256": sha ?: @""}
+                      reply:^(id r, NSError *e) {
+        if (e) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.installing = nil;
+                self.installNote = e.localizedDescription;
+                [self.tableView reloadData];
+            });
+        }
+    }];
+}
+
+- (void)runtimeEvent:(NSNotification *)note {
+    NSDictionary *p = note.userInfo;
+    if (![p isKindOfClass:[NSDictionary class]]) return;
+    NSString *name = p[@"name"];
+    NSString *phase = p[@"phase"];
+    if (![name isEqualToString:self.installing ?: @""]) return;
+
+    if ([phase isEqualToString:@"done"]) {
+        self.installing = nil;
+        self.installNote = [NSString stringWithFormat:@"%@ 安装完成", name];
+        [[NSNotificationCenter defaultCenter] removeObserver:self name:@"gm.runtime" object:nil];
+        [self loadRuntimes];
+        [self alert:[NSString stringWithFormat:@"%@ 安装完成\n\n%@", name, p[@"dest"] ?: @""]];
+    } else if ([phase isEqualToString:@"error"]) {
+        self.installing = nil;
+        self.installNote = [NSString stringWithFormat:@"%@ 失败：%@", name, p[@"message"] ?: @"未知"];
+        [[NSNotificationCenter defaultCenter] removeObserver:self name:@"gm.runtime" object:nil];
+        [self.tableView reloadData];
+        [self alert:self.installNote];
+    } else {
+        self.installNote = [NSString stringWithFormat:@"正在安装 %@…", name];
+        [self.tableView reloadData];
+    }
+}
+
+- (void)alert:(NSString *)msg {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"GM Agent"
+                                                             message:msg
+                                                      preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
 }
 
 - (void)refreshAll {
@@ -177,10 +247,12 @@ static NSString *const kManifestURL =
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 3; }
 
 - (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
-    return @[@"运行环境", @"内置工具", self.loadingRuntimes ? @"运行时（加载中…）" : @"运行时"][s];
+    if (s == 2) return self.loadingRuntimes ? @"运行时（加载中…）" : @"运行时（点击安装）";
+    return @[@"运行环境", @"内置工具"][s];
 }
 
 - (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)s {
+    if (s == 2 && self.installNote.length) return self.installNote;
     if (s == 0) return @"TrollStore + 越狱环境下，no-sandbox / task_for_pid 等权限才能生效。";
     if (s == 2) return @"运行时来自 CodexApp-Runtime 分发源，包含 Codex、Theos、Python、Node、BuildTools 等。";
     return nil;
@@ -230,13 +302,27 @@ static NSString *const kManifestURL =
     NSDictionary *row = self.runtimes[ip.row];
     NSString *url = row[@"url"];
     if (!url.length) return;
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:row[@"t"]
+    NSString *name = row[@"t"];
+    NSString *dir = [RuntimeRoot() stringByAppendingPathComponent:name];
+
+    if ([row[@"installed"] boolValue]) {
+        [self alert:[NSString stringWithFormat:@"%@ 已安装\n\n%@", name, dir]];
+        return;
+    }
+    if (self.installing.length) {
+        [self alert:[NSString stringWithFormat:@"正在安装 %@，请稍候", self.installing]];
+        return;
+    }
+
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:name
                                                              message:[NSString stringWithFormat:
-                                        @"包：%@\n\nSHA256：%@\n\n下载地址已复制到剪贴板。\n（自动安装将在下一版开放）",
-                                        row[@"s"], [(row[@"sha"] ?: @"") substringToIndex:MIN(16u, ((NSString *)row[@"sha"]).length)]]
+                                        @"将下载并解压到：\n%@\n\n包：%@\n大小可能较大，请确保网络稳定。",
+                                        dir, row[@"s"]]
                                                       preferredStyle:UIAlertControllerStyleAlert];
-    [UIPasteboard generalPasteboard].string = url;
-    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:@"安装" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        [self installRuntime:name url:url sha:row[@"sha"]];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }
 

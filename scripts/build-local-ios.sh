@@ -17,7 +17,7 @@ echo "== 编译引擎"
 clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -std=gnu99 \
   -Iengine -Ithird_party/openssl/arm64/include \
   engine/json.c engine/session.c engine/tool.c engine/sse.c \
-  engine/http.c engine/provider.c engine/turn.c engine/main.c \
+  engine/http.c engine/provider.c engine/turn.c engine/runtime.c engine/main.c \
   third_party/openssl/arm64/lib/libssl.a \
   third_party/openssl/arm64/lib/libcrypto.a \
   -framework Security -framework Foundation -lz \

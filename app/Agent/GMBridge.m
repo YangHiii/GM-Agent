@@ -30,6 +30,13 @@ static GMBridge *gBridge = nil;
 
 @implementation GMBridge
 
++ (instancetype)shared {
+    if (!gBridge) {
+        gBridge = [[GMBridge alloc] init];
+    }
+    return gBridge;
+}
+
 - (instancetype)init {
     if ((self = [super init])) {
         _pending = [NSMutableDictionary dictionary];
@@ -67,6 +74,12 @@ static void *engineThread(void *ctx) {
     }
     // 告诉引擎 CA 证书位置（iOS 无系统证书路径）
     setenv("GM_BUNDLE_DIR", [NSBundle mainBundle].bundlePath.fileSystemRepresentation, 1);
+    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *rtDir = [lib stringByAppendingPathComponent:@"Runtimes"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:rtDir
+                              withIntermediateDirectories:YES attributes:nil error:nil];
+    setenv("GM_RUNTIME_DIR", rtDir.fileSystemRepresentation, 1);
+    GMLog(@"运行时目录: %@", rtDir);
     NSString *ca = [[NSBundle mainBundle] pathForResource:@"cacert" ofType:@"pem"];
     if (ca) setenv("GM_CA_FILE", ca.fileSystemRepresentation, 1);
     GMLog(@"CA: %@", ca ?: @"(缺失)");
@@ -198,6 +211,13 @@ static void *engineThread(void *ctx) {
         return;
     }
     id method = msg[@"method"];
+    if ([method isKindOfClass:[NSString class]]) {
+        if ([method hasPrefix:@"gm/event/runtime"]) {
+            [NSNotificationCenter.defaultCenter postNotificationName:@"gm.runtime"
+                                                              object:self
+                                                            userInfo:msg[@"params"]];
+        }
+    }
     if (method) [self.delegate bridge:self didReceiveNotification:msg];
 }
 

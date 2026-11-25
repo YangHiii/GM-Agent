@@ -6,6 +6,7 @@
  * 事件推送需要跨 arena 的出口，因此 emit 前用 g_out 这一小块独立 arena。
  */
 #include "gm_engine.h"
+#include "runtime.h"
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -132,13 +133,51 @@ int gm_engine_main(int argc, char **argv) {
             reply(&g_turn, id, r, NULL);
         } else if (method && strcmp(method, "gm/ping") == 0) {
             reply(&g_turn, id, gm_val_str(&g_turn, "pong"), NULL);
+        } else if (method && strcmp(method, "gm/runtime/install") == 0) {
+            const char *url = gm_str(gm_obj_get(params, "url"));
+            const char *sha = gm_str(gm_obj_get(params, "sha256"));
+            const char *name = gm_str(gm_obj_get(params, "name"));
+            const char *root = getenv("GM_RUNTIME_DIR");
+            char dest[1024];
+            if (!root || !*root) root = "/tmp/gm-runtimes";
+            snprintf(dest, sizeof(dest), "%s/%s", root, name ? name : "runtime");
+
+            /* 先回执，再阻塞安装（进度用事件推送） */
+            reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
+
+            GMPVal *ev = gm_val_obj(&g_out);
+            GMPVal *pp = gm_val_obj(&g_out);
+            gm_obj_set(&g_out, pp, "name", gm_val_str(&g_out, name ? name : ""));
+            gm_obj_set(&g_out, pp, "phase", gm_val_str(&g_out, "start"));
+            gm_obj_set(&g_out, pp, "dest", gm_val_str(&g_out, dest));
+            gm_obj_set(&g_out, ev, "method", gm_val_str(&g_out, "gm/event/runtime"));
+            gm_obj_set(&g_out, ev, "params", pp);
+            out_write(ev);
+            gm_arena_reset(&g_out);
+
+            char *err = NULL;
+            int rc = gm_runtime_install(url, sha, dest, NULL, NULL, &err);
+            GMPVal *res = gm_val_obj(&g_out);
+            GMPVal *rp = gm_val_obj(&g_out);
+            gm_obj_set(&g_out, rp, "name", gm_val_str(&g_out, name ? name : ""));
+            gm_obj_set(&g_out, rp, "phase", gm_val_str(&g_out, rc == 0 ? "done" : "error"));
+            gm_obj_set(&g_out, rp, "dest", gm_val_str(&g_out, dest));
+            if (err) gm_obj_set(&g_out, rp, "message", gm_val_str(&g_out, err));
+            gm_obj_set(&g_out, res, "method", gm_val_str(&g_out, "gm/event/runtime"));
+            gm_obj_set(&g_out, res, "params", rp);
+            out_write(res);
+            gm_arena_reset(&g_out);
+            free(err);
         } else if (method && strcmp(method, "gm/tools/list") == 0) {
             reply(&g_turn, id, gm_tool_specs(&g_turn), NULL);
         } else if (method && strcmp(method, "gm/config") == 0) {
             const char *base = gm_str(gm_obj_get(params, "baseURL"));
             const char *key = gm_str(gm_obj_get(params, "apiKey"));
             const char *model = gm_str(gm_obj_get(params, "model"));
-            if (base) snprintf(g_prov.base_url, sizeof(g_prov.base_url), "%s", getenv("GM_BASE_URL") ?: "http://127.0.0.1:8771/v1/chat/completions");
+            if (base && *base) {
+                snprintf(g_prov.base_url, sizeof(g_prov.base_url), "%s", base);
+                fprintf(stderr, "[gm] config base=%s\n", g_prov.base_url);
+            }
             if (key) snprintf(g_prov.api_key, sizeof(g_prov.api_key), "%s", key);
             if (model) snprintf(g_prov.model, sizeof(g_prov.model), "%s", model);
             reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
