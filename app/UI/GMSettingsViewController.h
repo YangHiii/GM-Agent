@@ -1,11 +1,8 @@
-// GM Agent · 设置：模型 / 网关 / 密钥
+// GM Agent · 设置页
+// 流程：填网关地址 -> 自动拉取 /models -> 下拉选模型 -> 填 Key -> 测试 -> 保存
 #import <UIKit/UIKit.h>
 #import "GMConversation.h"
 
-@interface GMSettingsViewController : UIViewController <UITableViewDataSource, UITableViewDelegate>
+@interface GMSettingsViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
 @property (nonatomic, strong) UITableView *tableView;
-@property (nonatomic, strong) UITextField *urlField;
-@property (nonatomic, strong) UITextField *modelField;
-@property (nonatomic, strong) UITextField *keyField;
-- (instancetype)initWithConversation:(GMConversation *)conversation;
 @end

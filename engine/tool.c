@@ -10,8 +10,51 @@
 
 #define TOOL_OUT_CAP (512 * 1024)
 
+/* iOS 上没有 /bin/sh：按越狱/TrollStore/自带 顺序找可用 shell */
+static const char *gm_find_shell(void) {
+    static char cached[512];
+    static int done = 0;
+    if (done) return cached[0] ? cached : NULL;
+    done = 1;
+    /* 仅 Apple 平台用随包 bash（它是 Mach-O，Linux 上跑不了） */
+    int apple_platform = access("/System/Library/CoreServices", F_OK) == 0;
+    char bundled[512] = {0};
+    char exe[1024];
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+    (void)n;
+    const char *env = getenv("GM_BUNDLE_DIR");
+    if (apple_platform && env && *env) {
+        snprintf(bundled, sizeof(bundled), "%s/Helpers/bash.real", env);
+        if (access(bundled, X_OK) == 0) {
+            snprintf(cached, sizeof(cached), "%s", bundled);
+            fprintf(stderr, "[gm] shell(bundled): %s\n", cached);
+            return cached;
+        }
+    }
+    const char *cands[] = {
+        "/var/jb/usr/bin/bash", "/var/jb/usr/bin/sh",
+        "/usr/bin/bash", "/usr/bin/sh", "/bin/bash", "/bin/sh",
+        "/var/jb/bin/sh",
+        NULL
+    };
+    for (int i = 0; cands[i]; i++) {
+        if (access(cands[i], X_OK) == 0) {
+            snprintf(cached, sizeof(cached), "%s", cands[i]);
+            fprintf(stderr, "[gm] shell: %s\n", cached);
+            return cached;
+        }
+    }
+    fprintf(stderr, "[gm] 未找到可用 shell（需越狱/TrollStore 或随包 bash）\n");
+    return NULL;
+}
+
 char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, int *code_out) {
     if (code_out) *code_out = -1;
+    if (!gm_find_shell()) {
+        char *e = strdup("没有可用的 shell：请在越狱/TrollStore 环境安装 bash，或使用随包 bash");
+        if (code_out) *code_out = 127;
+        return e;
+    }
     if (!command || !*command) {
         char *e = malloc(1);
         if (e) e[0] = 0;
@@ -33,7 +76,20 @@ char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, in
         close(fds[1]);
         if (cwd && *cwd) { if (chdir(cwd) != 0) _exit(126); }
         setenv("GM_AGENT", "1", 1);
-        execl("/bin/sh", "sh", "-c", command, (char *)NULL);
+        /* 补上常见 PATH，越狱环境命令多在 /var/jb/usr/bin */
+        const char *oldpath = getenv("PATH");
+        char newpath[2048];
+        snprintf(newpath, sizeof(newpath),
+                 "/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:"
+                 "/usr/bin:/bin:/usr/sbin:/sbin:%s",
+                 oldpath ? oldpath : "");
+        setenv("PATH", newpath, 1);
+
+        const char *sh = gm_find_shell();
+        if (sh) {
+            execl(sh, sh, "-c", command, (char *)NULL);
+        }
+        /* 退路：直接截断符分割执行第一个词（无 shell 环境） */
         _exit(127);
     }
     close(fds[1]);

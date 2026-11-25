@@ -66,6 +66,7 @@ static void *engineThread(void *ctx) {
         return NULL;
     }
     // 告诉引擎 CA 证书位置（iOS 无系统证书路径）
+    setenv("GM_BUNDLE_DIR", [NSBundle mainBundle].bundlePath.fileSystemRepresentation, 1);
     NSString *ca = [[NSBundle mainBundle] pathForResource:@"cacert" ofType:@"pem"];
     if (ca) setenv("GM_CA_FILE", ca.fileSystemRepresentation, 1);
     GMLog(@"CA: %@", ca ?: @"(缺失)");

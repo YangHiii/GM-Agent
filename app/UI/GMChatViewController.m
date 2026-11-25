@@ -2,6 +2,7 @@
 #import "GMChatViewController.h"
 #import "GMMessage.h"
 #import "GMSettingsViewController.h"
+#import "GMDevViewController.h"
 
 @interface GMChatCell : UITableViewCell
 @property (nonatomic, strong) UILabel *bodyLabel;
@@ -67,11 +68,16 @@
                                          style:UIBarButtonItemStylePlain
                                         target:self
                                         action:@selector(newThread)];
-    self.navigationItem.rightBarButtonItem =
+    self.navigationItem.rightBarButtonItems = @[
         [[UIBarButtonItem alloc] initWithTitle:@"设置"
                                          style:UIBarButtonItemStylePlain
                                         target:self
-                                        action:@selector(openSettings)];
+                                        action:@selector(openSettings)],
+        [[UIBarButtonItem alloc] initWithTitle:@"能力"
+                                         style:UIBarButtonItemStylePlain
+                                        target:self
+                                        action:@selector(openDev)],
+    ];
 
     _table = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     _table.translatesAutoresizingMaskIntoConstraints = NO;
@@ -163,6 +169,10 @@
 
 - (void)newThread {
     [self.conversation newThread];
+}
+
+- (void)openDev {
+    [self.navigationController pushViewController:[GMDevViewController new] animated:YES];
 }
 
 - (void)openSettings {
