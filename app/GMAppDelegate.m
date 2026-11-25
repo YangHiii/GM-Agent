@@ -7,7 +7,7 @@
 @interface GMAppDelegate ()
 @property (nonatomic, strong) GMBridge *bridge;
 @property (nonatomic, strong) GMConversation *conversation;
-@property (nonatomic, strong) UIWindow *window;
+// 注：window 属性已由 UIApplicationDelegate 协议声明，这里不再重复声明
 @end
 
 @implementation GMAppDelegate
