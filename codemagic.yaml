@@ -7,7 +7,15 @@ workflows:
       xcode: latest
       vars:
         OPENSSL_VERSION: "3.5.0"
+    cache:
+      cache_paths:
+        - $HOME/openssl-cache
     scripts:
+      - name: 清理
+        script: |
+          echo "workspace: $(pwd)"
+          ls -la
+          rm -rf build 2>/dev/null || true
       - name: 编译 OpenSSL
         script: sh scripts/build-openssl-ios.sh
       - name: 编译引擎
