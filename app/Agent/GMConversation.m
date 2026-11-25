@@ -1,6 +1,7 @@
 // GM Agent · 会话实现：负责 gm/* JSON-RPC 通知 -> 消息模型
 #import "GMConversation.h"
 #import "GMJSON.h"
+#import "GMMessage.h"
 
 @interface GMConversation ()
 @property (nonatomic, strong) GMBridge *bridge;

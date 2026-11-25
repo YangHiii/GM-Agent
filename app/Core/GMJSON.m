@@ -158,7 +158,7 @@ static void _GMAppendJSON(NSMutableString *out, id obj) {
     if ([obj isKindOfClass:[NSNumber class]]) {
         NSNumber *n = obj;
         const char *t = n.objCType;
-        if (strcmp(t, @encode(BOOL)) == 0 || strcmp(t, "c") == 0) {
+        if (strcmp(t, "c") == 0 || strcmp(t, "B") == 0) {   /* char / BOOL */
             [out appendString:n.boolValue ? @"true" : @"false"];
         } else {
             [out appendFormat:@"%@", n];

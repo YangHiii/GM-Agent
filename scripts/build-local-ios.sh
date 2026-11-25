@@ -20,7 +20,7 @@ clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -std=gnu99 \
   engine/http.c engine/provider.c engine/turn.c engine/main.c \
   third_party/openssl/arm64/lib/libssl.a \
   third_party/openssl/arm64/lib/libcrypto.a \
-  -framework Security -framework Foundation \
+  -framework Security -framework Foundation -lz \
   -o build/gm-engine
 
 APP=build/GMAgent.app

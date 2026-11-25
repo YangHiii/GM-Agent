@@ -20,7 +20,7 @@ workflows:
             engine/http.c engine/provider.c engine/turn.c engine/main.c \
             third_party/openssl/arm64/lib/libssl.a \
             third_party/openssl/arm64/lib/libcrypto.a \
-            -framework Security -framework Foundation -o build/gm-engine
+            -framework Security -framework Foundation -lz -o build/gm-engine
       - name: 编译 App
         script: |
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)

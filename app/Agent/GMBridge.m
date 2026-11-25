@@ -2,6 +2,12 @@
 #import "GMBridge.h"
 #import "GMJSON.h"
 
+#include <spawn.h>
+#include <signal.h>
+#include <unistd.h>
+
+extern char **environ;
+
 @interface GMBridge () {
     pid_t _pid;
     NSFileHandle *_toEngine;
@@ -54,7 +60,6 @@
 
     const char *argv[] = { engine.fileSystemRepresentation, "--mode", "app-server", NULL };
     // 引擎需要完整环境（PATH/HOME 供工具执行）
-    extern char **environ;
     pid_t pid = 0;
     int rc = posix_spawn(&pid, engine.fileSystemRepresentation, &actions, NULL,
                          (char *const *)argv, environ);
