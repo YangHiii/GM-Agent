@@ -29,15 +29,17 @@ workflows:
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           mkdir -p build
           clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -std=gnu99 \
+            -dynamiclib -install_name @rpath/libgm-engine.dylib \
             -Iengine -Ithird_party/openssl/arm64/include \
             engine/json.c engine/session.c engine/tool.c engine/sse.c \
             engine/http.c engine/provider.c engine/turn.c engine/main.c \
             third_party/openssl/arm64/lib/libssl.a \
             third_party/openssl/arm64/lib/libcrypto.a \
             -framework Security -framework Foundation -lz \
-            -o build/gm-engine
-          test -s build/gm-engine
-          file build/gm-engine | grep -q "Mach-O 64-bit executable arm64"
+            -o build/libgm-engine.dylib
+          test -s build/libgm-engine.dylib
+          file build/libgm-engine.dylib | grep -q "Mach-O 64-bit dynamically linked shared library arm64"
+          nm -gU build/libgm-engine.dylib | grep -q _gm_engine_main
 
       - name: 编译 App
         script: |
@@ -58,8 +60,8 @@ workflows:
           set -eu
           APP=build/GMAgent.app
           cp app/Resources/Info.plist "$APP/Info.plist"
-          cp build/gm-engine "$APP/gm-engine"
-          chmod +x "$APP/GMAgent" "$APP/gm-engine"
+          cp build/libgm-engine.dylib "$APP/libgm-engine.dylib"
+          chmod +x "$APP/GMAgent"
           ls -la "$APP"
           # 自检：版本号与 Scene 清单必须在（防止再出现"改不动"的包）
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
@@ -69,16 +71,16 @@ workflows:
           test "$V" = "100" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
           # 自检：可执行文件必须在，且是 arm64
           test -x "$APP/GMAgent"
-          test -x "$APP/gm-engine"
+          test -s "$APP/libgm-engine.dylib"
           file "$APP/GMAgent"
-          file "$APP/gm-engine"
+          file "$APP/libgm-engine.dylib"
 
       - name: 签名
         script: |
           set -eu
           APP=build/GMAgent.app
           ENT=app/Resources/entitlements.plist
-          codesign --force --sign - "$APP/gm-engine"
+          codesign --force --sign - "$APP/libgm-engine.dylib"
           codesign --force --sign - --entitlements "$ENT" --deep "$APP"
           codesign --verify --deep --verbose=2 "$APP" || true
           codesign -dv --verbose=4 "$APP" 2>&1 | head -10 || true
@@ -93,7 +95,7 @@ workflows:
           zip -qry ../GMAgent.ipa Payload
           cd ..
           # 自检：ipa 里必须有主二进制，大小必须合理
-          unzip -l GMAgent.ipa | grep -E "Payload/GMAgent.app/(GMAgent|gm-engine)$"
+          unzip -l GMAgent.ipa | grep -E "Payload/GMAgent.app/(GMAgent|libgm-engine.dylib)$"
           SIZE=$(stat -f%z GMAgent.ipa)
           echo "ipa size: $SIZE"
           MIN=$((1500 * 1024))   # 压缩后正常约 1.8MB；低于 1.5MB 说明缺文件

@@ -93,6 +93,7 @@ static NSString *gm_keychain_get(void) {
           forKey:@"gm.effort"];
     [d synchronize];
     gm_keychain_set(self.keyField.text);
+    [d setObject:(self.keyField.text ?: @"") forKey:@"gm.apiKey"];
 
     NSString *model = [d stringForKey:@"gm.model"];
     NSString *effort = [d stringForKey:@"gm.effort"];

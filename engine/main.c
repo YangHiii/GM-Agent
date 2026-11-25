@@ -80,7 +80,14 @@ static void load_config(void) {
     snprintf(g_prov.model, sizeof(g_prov.model), "%s", getenv("GM_MODEL") ?: "gpt-5.2");
 }
 
+/* 供 dylib 方式调用：App 在后台线程直接调这个函数，stdin/stdout 由 socketpair 重定向 */
+int gm_engine_main(int argc, char **argv);
+
 int main(int argc, char **argv) {
+    return gm_engine_main(argc, argv);
+}
+
+int gm_engine_main(int argc, char **argv) {
     (void)argc;
     (void)argv;
     setvbuf(stdout, NULL, _IOLBF, 0);

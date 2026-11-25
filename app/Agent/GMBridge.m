@@ -1,25 +1,32 @@
-// GM Agent · 引擎桥
-// 用 fork/execve + dup2 手动重定向（不依赖 posix_spawn，避免 iOS SDK 的 spawn.h 受限问题）
+// GM Agent · 引擎桥（进程内 dylib 模式）
+// 不用 fork/exec：把 gm-engine 编成 dylib，dlopen 后在后台线程跑 gm_engine_main，
+// stdin/stdout 通过 socketpair 重定向。iOS 上不需要任何可执行特权。
 #import "GMBridge.h"
 #import "GMJSON.h"
+#import "GMLog.h"
 
+#include <dlfcn.h>
 #include <unistd.h>
 #include <signal.h>
-#include <sys/wait.h>
-#include <fcntl.h>
-#include <errno.h>
+#include <pthread.h>
+#include <sys/socket.h>
 
-extern char **environ;
+typedef int (*GMEngineMainFn)(int, char **);
 
 @interface GMBridge () {
-    pid_t _pid;
+    int _toEngineFd;      // 我们写
+    int _fromEngineFd;    // 我们读
     NSFileHandle *_toEngine;
     NSFileHandle *_fromEngine;
     NSMutableDictionary<NSNumber *, void (^)(id, NSError *)> *_pending;
     long long _nextID;
     NSMutableData *_lineBuffer;
+    pthread_t _thread;
+    BOOL _running;
 }
 @end
+
+static GMBridge *gBridge = nil;
 
 @implementation GMBridge
 
@@ -28,74 +35,76 @@ extern char **environ;
         _pending = [NSMutableDictionary dictionary];
         _nextID = 1;
         _lineBuffer = [NSMutableData data];
+        _toEngineFd = -1;
+        _fromEngineFd = -1;
+        gBridge = self;
     }
     return self;
 }
 
-- (BOOL)running { return _pid > 0; }
+- (BOOL)running { return _running; }
 
 - (NSString *)_enginePath {
-    return [[NSBundle mainBundle] pathForResource:@"gm-engine" ofType:nil];
+    return [[NSBundle mainBundle] pathForResource:@"libgm-engine" ofType:@"dylib"];
+}
+
+// 供引擎线程读取我们写入的字节
+static int gInFd = -1, gOutFd = -1;
+
+static void *engineThread(void *ctx) {
+    (void)ctx;
+    NSString *path = gBridge ? [gBridge _enginePath] : nil;
+    if (!path) { GMLog(@"dylib 路径为空"); return NULL; }
+    void *h = dlopen(path.fileSystemRepresentation, RTLD_NOW | RTLD_LOCAL);
+    if (!h) {
+        GMLog(@"dlopen 失败: %s", dlerror());
+        return NULL;
+    }
+    GMEngineMainFn fn = (GMEngineMainFn)dlsym(h, "gm_engine_main");
+    if (!fn) {
+        GMLog(@"dlsym gm_engine_main 失败: %s", dlerror());
+        return NULL;
+    }
+    // 把 fd 0/1 指向 socketpair 两端
+    dup2(gInFd, STDIN_FILENO);
+    dup2(gOutFd, STDOUT_FILENO);
+    char *argv[] = { "gm-engine", "--mode", "app-server", NULL };
+    GMLog(@"engine 线程启动");
+    int rc = fn(4, argv);
+    GMLog(@"engine 退出 rc=%d", rc);
+    return NULL;
 }
 
 - (BOOL)startWithError:(NSError **)error {
-    if (self.running) return YES;
+    if (_running) return YES;
 
     NSString *engine = [self _enginePath];
     if (!engine) {
         if (error) {
             *error = [NSError errorWithDomain:@"GMBridge" code:1
-                                     userInfo:@{NSLocalizedDescriptionKey: @"gm-engine 未随包发布"}];
+                                     userInfo:@{NSLocalizedDescriptionKey: @"libgm-engine.dylib 未随包发布"}];
         }
+        GMLog(@"⚠️ libgm-engine.dylib 不存在");
         return NO;
     }
+    GMLog(@"engine dylib: %@", engine);
 
-    // 三条管道：stdin / stdout / stderr
-    int inFds[2], outFds[2], errFds[2];
-    if (pipe(inFds) != 0 || pipe(outFds) != 0 || pipe(errFds) != 0) {
+    // 两条单向管道： App->engine(stdin)，engine->App(stdout)
+    int appToEng[2], engToApp[2];
+    if (pipe(appToEng) != 0 || pipe(engToApp) != 0) {
         if (error) {
-            *error = [NSError errorWithDomain:@"GMBridge" code:3
+            *error = [NSError errorWithDomain:@"GMBridge" code:2
                                      userInfo:@{NSLocalizedDescriptionKey: @"创建管道失败"}];
         }
         return NO;
     }
+    _toEngineFd = appToEng[1];      // App 写入
+    _fromEngineFd = engToApp[0];    // App 读取
+    gInFd = appToEng[0];            // engine 读 stdin
+    gOutFd = engToApp[1];           // engine 写 stdout
 
-    const char *path = engine.fileSystemRepresentation;
-    pid_t pid = fork();
-    if (pid < 0) {
-        close(inFds[0]); close(inFds[1]);
-        close(outFds[0]); close(outFds[1]);
-        close(errFds[0]); close(errFds[1]);
-        if (error) {
-            *error = [NSError errorWithDomain:@"GMBridge" code:4
-                                     userInfo:@{NSLocalizedDescriptionKey: @"fork 失败"}];
-        }
-        return NO;
-    }
-
-    if (pid == 0) {
-        // ---- 子进程 ----
-        dup2(inFds[0], STDIN_FILENO);
-        dup2(outFds[1], STDOUT_FILENO);
-        dup2(errFds[1], STDERR_FILENO);
-        close(inFds[0]); close(inFds[1]);
-        close(outFds[0]); close(outFds[1]);
-        close(errFds[0]); close(errFds[1]);
-
-        char *const argv[] = { (char *)path, "--mode", "app-server", NULL };
-        execve(path, argv, environ);
-        _exit(127);   // exec 失败
-    }
-
-    // ---- 父进程 ----
-    close(inFds[0]);
-    close(outFds[1]);
-    close(errFds[1]);
-
-    _pid = pid;
-    _toEngine = [[NSFileHandle alloc] initWithFileDescriptor:inFds[1] closeOnDealloc:YES];
-    _fromEngine = [[NSFileHandle alloc] initWithFileDescriptor:outFds[0] closeOnDealloc:YES];
-    NSFileHandle *errHandle = [[NSFileHandle alloc] initWithFileDescriptor:errFds[0] closeOnDealloc:YES];
+    _toEngine = [[NSFileHandle alloc] initWithFileDescriptor:_toEngineFd closeOnDealloc:NO];
+    _fromEngine = [[NSFileHandle alloc] initWithFileDescriptor:_fromEngineFd closeOnDealloc:NO];
 
     __weak typeof(self) weakSelf = self;
     [_fromEngine setReadabilityHandler:^(NSFileHandle *h) {
@@ -106,44 +115,29 @@ extern char **environ;
             [strongSelf _consume:chunk];
         });
     }];
-    [errHandle setReadabilityHandler:^(NSFileHandle *h) {
-        NSData *chunk = h.availableData;
-        if (chunk.length == 0) return;
-        NSString *line = [[NSString alloc] initWithData:chunk encoding:NSUTF8StringEncoding];
-        NSLog(@"[gm-engine] %@", line);
-    }];
 
-    dispatch_source_t src = dispatch_source_create(DISPATCH_SOURCE_TYPE_PROC, (uintptr_t)pid,
-                                                   DISPATCH_PROC_EXIT, dispatch_get_main_queue());
-    if (src) {
-        dispatch_source_set_event_handler(src, ^{
-            dispatch_source_cancel(src);
-            __strong typeof(weakSelf) strongSelf = weakSelf;
-            if (!strongSelf) return;
-            strongSelf->_pid = 0;
-            [strongSelf.delegate bridge:strongSelf didExitWithStatus:0];
-        });
-        dispatch_resume(src);
-    }
+    pthread_create(&_thread, NULL, engineThread, NULL);
+    _running = YES;
     return YES;
 }
 
 - (void)stop {
-    if (_toEngine) {
-        @try { [_toEngine closeFile]; } @catch (__unused NSException *e) {}
-        _toEngine = nil;
-    }
-    if (_pid > 0) {
-        kill(_pid, SIGTERM);
-        _pid = 0;
-    }
+    if (_toEngineFd >= 0) { close(_toEngineFd); _toEngineFd = -1; }
+    if (_fromEngineFd >= 0) { close(_fromEngineFd); _fromEngineFd = -1; }
+    _running = NO;
 }
 
 - (void)_write:(NSDictionary *)message {
-    if (!_toEngine) return;
+    if (_toEngineFd < 0) return;
     NSData *data = [[GMJSONString(message) stringByAppendingString:@"\n"]
                     dataUsingEncoding:NSUTF8StringEncoding];
-    @try { [_toEngine writeData:data]; } @catch (__unused NSException *e) { }
+    const char *bytes = data.bytes;
+    size_t left = data.length;
+    while (left) {
+        ssize_t n = write(_toEngineFd, bytes, left);
+        if (n <= 0) break;
+        bytes += n; left -= (size_t)n;
+    }
 }
 
 - (void)call:(NSString *)method params:(id)params reply:(void (^)(id, NSError *))reply {
