@@ -76,8 +76,7 @@ static UIViewController *GMGLMakeRoot(void) {
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     GMLog(@"didFinishLaunching, scenes=%lu, manifest=%@", (unsigned long)application.connectedScenes.count, [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIApplicationSceneManifest"] ? @"YES" : @"NO");
 
-    BOOL usesScenes = (application.supportsMultipleScenes ||
-                       [[NSBundle.mainBundle objectForInfoDictionaryKey:@"UIApplicationSceneManifest"] boolValue] != nil);
+    BOOL usesScenes = application.supportsMultipleScenes;
     NSDictionary *manifest = [NSBundle.mainBundle objectForInfoDictionaryKey:@"UIApplicationSceneManifest"];
 
     if (!manifest) {

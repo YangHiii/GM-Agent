@@ -17,10 +17,11 @@ void GMLog(NSString *fmt, ...) {
     time_t t = time(NULL);
     struct tm tmv;
     localtime_r(&t, &tmv);
-    char ts[32];
-    strftime(ts, sizeof(ts), "%H:%M:%S", &tmv);
+    char tsbuf[32];
+    strftime(tsbuf, sizeof(tsbuf), "%H:%M:%S", &tmv);
+    NSString *ts = [NSString stringWithUTF8String:tsbuf];
 
-    fprintf(stderr, "[GM %s] %s\n", ts, msg.UTF8String);
+    fprintf(stderr, "[GM %s] %s\n", tsbuf, msg.UTF8String);
 
     static dispatch_queue_t q;
     static dispatch_once_t once;
@@ -28,7 +29,7 @@ void GMLog(NSString *fmt, ...) {
         q = dispatch_queue_create("gm.log", DISPATCH_QUEUE_SERIAL);
     });
     dispatch_async(q, ^{
-        NSString *line = [NSString stringWithFormat:@"%s %@\n", ts, msg];
+        NSString *line = [NSString stringWithFormat:@"%@ %@\n", ts, msg];
         NSString *path = GMLogPath();
         FILE *f = fopen(path.UTF8String, "a");
         if (f) {
