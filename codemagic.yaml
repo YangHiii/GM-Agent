@@ -10,6 +10,7 @@ workflows:
     cache:
       cache_paths:
         - $HOME/openssl-cache
+        - $HOME/zstd-cache
     scripts:
       # ---- 每个块都以 set -eu 开头：任何命令失败立刻中断，绝不产出空壳包 ----
       - name: 清理
@@ -23,6 +24,11 @@ workflows:
           set -eu
           sh scripts/build-openssl-ios.sh
 
+      - name: 编译 zstd
+        script: |
+          set -eu
+          sh scripts/build-zstd-ios.sh
+
       - name: 编译引擎
         script: |
           set -eu
@@ -31,10 +37,12 @@ workflows:
           clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -std=gnu99 \
             -dynamiclib -install_name @rpath/libgm-engine.dylib \
             -Iengine -Ithird_party/openssl/arm64/include \
+            -Ithird_party/zstd/arm64/include \
             engine/json.c engine/session.c engine/tool.c engine/sse.c \
-            engine/http.c engine/provider.c engine/turn.c engine/runtime.c engine/main.c \
+            engine/http.c engine/provider.c engine/turn.c engine/runtime.c engine/log.c engine/main.c \
             third_party/openssl/arm64/lib/libssl.a \
             third_party/openssl/arm64/lib/libcrypto.a \
+            third_party/zstd/arm64/lib/libzstd.a \
             -framework Security -framework Foundation -lz \
             -o build/libgm-engine.dylib
           test -s build/libgm-engine.dylib
@@ -83,7 +91,7 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist" | tee /tmp/ver.txt
           V=$(cat /tmp/ver.txt | tr -d ' ')
-          test "$V" = "142" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
+          test "$V" = "143" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
           # 自检：可执行文件必须在，且是 arm64
           test -x "$APP/GMAgent"
           test -s "$APP/libgm-engine.dylib"

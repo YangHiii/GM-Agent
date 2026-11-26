@@ -3,3 +3,4 @@
 
 void GMLog(NSString *fmt, ...) NS_FORMAT_FUNCTION(1, 2);
 NSString *GMLogPath(void);
+NSString *GMLogEnginePath(void);

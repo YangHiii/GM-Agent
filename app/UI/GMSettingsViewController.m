@@ -338,9 +338,15 @@ static NSString *const kCell = @"gs";
 }
 
 - (void)showLog {
-    NSString *content = [NSString stringWithContentsOfFile:GMLogPath()
-                                                 encoding:NSUTF8StringEncoding error:nil];
-    if (!content.length) content = @"(日志为空或文件不存在)";
+    NSString *app = [NSString stringWithContentsOfFile:GMLogPath()
+                                              encoding:NSUTF8StringEncoding error:nil] ?: @"(空)";
+    NSString *eng = [NSString stringWithContentsOfFile:GMLogEnginePath()
+                                              encoding:NSUTF8StringEncoding error:nil] ?: @"(空)";
+    NSMutableString *content = [NSMutableString string];
+    [content appendString:@"━━━━━ 应用日志 ━━━━━\n"];
+    [content appendString:app];
+    [content appendString:@"\n\n━━━━━ 引擎日志 ━━━━━\n"];
+    [content appendString:eng];
     UIViewController *vc = [UIViewController new];
     vc.title = @"日志";
     vc.view.backgroundColor = UIColor.systemBackgroundColor;

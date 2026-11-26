@@ -16,6 +16,10 @@
 
 #define GM_VERSION "0.1.0"
 
+/* ---------------- 日志 ---------------- */
+void gm_logf(const char *fmt, ...);
+void gm_log_init(void);
+
 /* ---------------- 区域分配器 ---------------- */
 typedef struct GMArena {
     char *p;

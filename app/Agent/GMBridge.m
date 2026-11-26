@@ -99,6 +99,10 @@ static void *engineThread(void *ctx) {
                               withIntermediateDirectories:YES attributes:nil error:nil];
     setenv("GM_SESSION_DIR", sessDir.fileSystemRepresentation, 1);
     GMLog(@"会话目录: %@", sessDir);
+    /* 引擎日志单独一个文件，便于诊断流式/网络问题 */
+    NSString *engLog = [docs stringByAppendingPathComponent:@"engine.log"];
+    setenv("GM_LOG_FILE", engLog.fileSystemRepresentation, 1);
+    GMLog(@"引擎日志: %@", engLog);
     GMLog(@"运行时目录: %@", rtDir);
     NSString *ca = [[NSBundle mainBundle] pathForResource:@"cacert" ofType:@"pem"];
     if (ca) setenv("GM_CA_FILE", ca.fileSystemRepresentation, 1);

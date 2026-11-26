@@ -8,6 +8,11 @@ NSString *GMLogPath(void) {
     return [dir stringByAppendingPathComponent:@"boot.log"];
 }
 
+NSString *GMLogEnginePath(void) {
+    NSString *dir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    return [dir stringByAppendingPathComponent:@"engine.log"];
+}
+
 void GMLog(NSString *fmt, ...) {
     va_list ap;
     va_start(ap, fmt);

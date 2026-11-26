@@ -1,6 +1,7 @@
 /* GM Agent · 运行时安装器实现 */
 #include "runtime.h"
 #include "http.h"
+#include "gm_engine.h"
 
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -8,6 +9,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <zlib.h>
+#include <zstd.h>
 #include <openssl/evp.h>
 
 static void seterr(char **err, const char *fmt, ...) {
@@ -78,30 +80,69 @@ static int write_full(int fd, const char *buf, size_t len) {
     return 0;
 }
 
-/* 从 gz 流中读满 n 字节；返回实际读取字节数 */
-static size_t gz_read_full(gzFile gz, char *buf, size_t n) {
-    size_t got = 0;
-    while (got < n) {
-        int r = gzread(gz, buf + got, (unsigned)(n - got));
-        if (r <= 0) break;
-        got += (size_t)r;
+/* 统一读取源：支持 .tar.gz 与纯 .tar */
+typedef struct {
+    gzFile gz;
+    FILE *fp;
+} TarSrc;
+
+static int src_open(TarSrc *s, const char *path) {
+    FILE *probe = fopen(path, "rb");
+    if (!probe) return -1;
+    unsigned char m[2] = {0};
+    size_t n = fread(m, 1, 2, probe);
+    fclose(probe);
+    if (n == 2 && m[0] == 0x1F && m[1] == 0x8B) {
+        s->gz = gzopen(path, "rb");
+        s->fp = NULL;
+        return s->gz ? 0 : -1;
     }
-    return got;
+    s->gz = NULL;
+    s->fp = fopen(path, "rb");
+    return s->fp ? 0 : -1;
 }
 
+static size_t src_read(TarSrc *s, char *buf, size_t n) {
+    if (s->gz) {
+        size_t got = 0;
+        while (got < n) {
+            int r = gzread(s->gz, buf + got, (unsigned)(n - got));
+            if (r <= 0) break;
+            got += (size_t)r;
+        }
+        return got;
+    }
+    return fread(buf, 1, n, s->fp);
+}
+
+static void src_skip(TarSrc *s, long long n) {
+    if (n <= 0) return;
+    if (s->gz) { gzseek(s->gz, (long)n, SEEK_CUR); return; }
+    fseek(s->fp, (long)n, SEEK_CUR);
+}
+
+static void src_close(TarSrc *s) {
+    if (s->gz) gzclose(s->gz);
+    if (s->fp) fclose(s->fp);
+}
+
+/* 纯 tar（未压缩）：用 gzopen 无法读，改为 zlib 的透明模式 */
 int gm_tar_gz_extract(const char *archive, const char *destDir, char **err) {
-    gzFile gz = gzopen(archive, "rb");
-    if (!gz) { seterr(err, "无法打开压缩包: %s", archive); return -1; }
-    if (mkdir_p(destDir) != 0) { gzclose(gz); seterr(err, "无法创建目录: %s", destDir); return -1; }
+    TarSrc src = {0};
+    if (src_open(&src, archive) != 0) {
+        seterr(err, "无法打开压缩包: %s", archive);
+        return -1;
+    }
+    if (mkdir_p(destDir) != 0) { src_close(&src); seterr(err, "无法创建目录: %s", destDir); return -1; }
 
     GMTarHeader hdr;
     char longname[2048] = {0};
     char *buf = malloc(64 * 1024);
-    if (!buf) { gzclose(gz); seterr(err, "内存不足"); return -1; }
+    if (!buf) { src_close(&src); seterr(err, "内存不足"); return -1; }
 
     int rc = 0;
     while (1) {
-        size_t got = gz_read_full(gz, (char *)&hdr, sizeof(hdr));
+        size_t got = src_read(&src, (char *)&hdr, sizeof(hdr));
         if (got < sizeof(hdr)) break;
         if (hdr.name[0] == 0) break;   /* 结束标记 */
         long long size = tar_octal(hdr.size, sizeof(hdr.size));
@@ -110,19 +151,19 @@ int gm_tar_gz_extract(const char *archive, const char *destDir, char **err) {
         /* 长文件名（GNU） */
         if (mode == 'L') {
             size_t n = (size_t)size > sizeof(longname) - 1 ? sizeof(longname) - 1 : (size_t)size;
-            gz_read_full(gz, longname, n);
+            src_read(&src, longname, n);
             longname[n] = 0;
             long long skip = size - (long long)n;
             long long pad = (512 - (size % 512)) % 512;
-            if (skip > 0) gzseek(gz, (long)skip, SEEK_CUR);
-            if (pad > 0) gzseek(gz, (long)pad, SEEK_CUR);
+            if (skip > 0) src_skip(&src, skip);
+            if (pad > 0) src_skip(&src, pad);
             continue;
         }
         /* pax 头：直接跳过 */
         if (mode == 'x' || mode == 'g') {
             long long pad = (512 - (size % 512)) % 512;
-            if (size > 0) gzseek(gz, (long)size, SEEK_CUR);
-            if (pad > 0) gzseek(gz, (long)pad, SEEK_CUR);
+            if (size > 0) src_skip(&src, size);
+            if (pad > 0) src_skip(&src, pad);
             continue;
         }
 
@@ -163,14 +204,14 @@ int gm_tar_gz_extract(const char *archive, const char *destDir, char **err) {
             int fd = open(full, O_CREAT | O_WRONLY | O_TRUNC, (int)(md & 0777));
             if (fd < 0) {
                 long long pad = (512 - (size % 512)) % 512;
-                if (size > 0) gzseek(gz, (long)size, SEEK_CUR);
-                if (pad > 0) gzseek(gz, (long)pad, SEEK_CUR);
+                if (size > 0) src_skip(&src, size);
+                if (pad > 0) src_skip(&src, pad);
                 continue;
             }
             long long left = size;
             while (left > 0) {
                 size_t want = (size_t)(left > 64 * 1024 ? 64 * 1024 : left);
-                size_t n = gz_read_full(gz, buf, want);
+                size_t n = src_read(&src, buf, want);
                 if (n == 0) break;
                 write_full(fd, buf, n);
                 left -= (long long)n;
@@ -180,11 +221,69 @@ int gm_tar_gz_extract(const char *archive, const char *destDir, char **err) {
         }
 
         long long pad = (512 - (size % 512)) % 512;
-        if (pad > 0) gzseek(gz, (long)pad, SEEK_CUR);
+        if (pad > 0) src_skip(&src, pad);
     }
 
     free(buf);
-    gzclose(gz);
+    src_close(&src);
+    return rc;
+}
+
+/* ---------- zstd 解压（deb 常用 data.tar.zst） ---------- */
+int gm_zst_decompress(const char *in, const char *out, char **err) {
+    FILE *fi = fopen(in, "rb");
+    if (!fi) { seterr(err, "无法打开 zst: %s", in); return -1; }
+    FILE *fo = fopen(out, "wb");
+    if (!fo) { fclose(fi); seterr(err, "无法写入: %s", out); return -1; }
+
+    ZSTD_DStream *ds = ZSTD_createDStream();
+    if (!ds) { fclose(fi); fclose(fo); seterr(err, "ZSTD 初始化失败"); return -1; }
+    ZSTD_initDStream(ds);
+
+    size_t inCap = ZSTD_DStreamInSize();
+    size_t outCap = ZSTD_DStreamOutSize();
+    void *inBuf = malloc(inCap);
+    void *outBuf = malloc(outCap);
+    if (!inBuf || !outBuf) {
+        free(inBuf); free(outBuf);
+        ZSTD_freeDStream(ds); fclose(fi); fclose(fo);
+        seterr(err, "内存不足");
+        return -1;
+    }
+
+    int rc = 0;
+    size_t lastRet = 1;
+    for (;;) {
+        size_t n = fread(inBuf, 1, inCap, fi);
+        if (n == 0) {
+            if (lastRet != 0) { seterr(err, "zst 数据不完整"); rc = -1; }
+            break;
+        }
+        ZSTD_inBuffer input = { inBuf, n, 0 };
+        while (input.pos < input.size) {
+            ZSTD_outBuffer output = { outBuf, outCap, 0 };
+            size_t ret = ZSTD_decompressStream(ds, &output, &input);
+            if (ZSTD_isError(ret)) {
+                seterr(err, "zst 解压失败: %s", ZSTD_getErrorName(ret));
+                rc = -1;
+                break;
+            }
+            if (output.pos && fwrite(outBuf, 1, output.pos, fo) != output.pos) {
+                seterr(err, "写入失败");
+                rc = -1;
+                break;
+            }
+            lastRet = ret;
+            if (ret == 0) break;
+        }
+        if (rc != 0) break;
+    }
+
+    free(inBuf); free(outBuf);
+    ZSTD_freeDStream(ds);
+    fclose(fi);
+    fclose(fo);
+    if (rc == 0) gm_logf("zst 解压完成: %s", out);
     return rc;
 }
 
@@ -207,15 +306,27 @@ int gm_deb_extract(const char *archive, const char *destDir, char **err) {
     while (1) {
         char hdr[60];
         if (fread(hdr, 1, 60, f) != 60) break;
-        char name[17] = {0};
-        memcpy(name, hdr, 16);
-        for (int i = 15; i >= 0 && name[i] == ' '; i--) name[i] = 0;
+        char raw[17] = {0};
+        memcpy(raw, hdr, 16);
+        for (int i = 15; i >= 0 && raw[i] == ' '; i--) raw[i] = 0;
+
+        /* ar 成员名可能是 "./x"、"/x"、"x/" 等形态，统一去掉前缀与尾斜杠 */
+        const char *nm = raw;
+        while (nm[0] == '.' && nm[1] == '/') nm += 2;
+        while (nm[0] == '/') nm++;
+        char name[32] = {0};
+        snprintf(name, sizeof(name), "%s", nm);
+        size_t nl = strlen(name);
+        while (nl > 0 && name[nl-1] == '/') name[--nl] = 0;
+
         long long size = atoll(hdr + 48);
 
         if (strncmp(name, "data.tar", 8) == 0) {
             char out[700];
-            snprintf(out, sizeof(out), "%s/data.tar%s", tmpdir,
-                     strstr(name, ".gz") ? ".gz" : (strstr(name, ".xz") ? ".xz" : ""));
+            const char *sfx = strstr(name, ".gz") ? ".gz" :
+                              (strstr(name, ".zst") ? ".zst" :
+                               (strstr(name, ".xz") ? ".xz" : ""));
+            snprintf(out, sizeof(out), "%s/data.tar%s", tmpdir, sfx);
             FILE *o = fopen(out, "wb");
             if (o) {
                 char *buf = malloc(64 * 1024);
@@ -231,8 +342,17 @@ int gm_deb_extract(const char *archive, const char *destDir, char **err) {
                 fclose(o);
                 if (strstr(out, ".gz")) {
                     rc = gm_tar_gz_extract(out, destDir, err);
+                } else if (strstr(out, ".zst")) {
+                    char plain[800];
+                    snprintf(plain, sizeof(plain), "%s/data.tar", tmpdir);
+                    if (gm_zst_decompress(out, plain, err) == 0) {
+                        rc = gm_tar_gz_extract(plain, destDir, err);  /* 已解压，纯 tar 走同一解析器 */
+                        unlink(plain);
+                    }
+                } else if (strstr(out, ".xz")) {
+                    seterr(err, "暂不支持 data.tar.xz");
                 } else {
-                    seterr(err, "暂只支持 data.tar.gz（本包为 %s）", name);
+                    seterr(err, "未知压缩格式: %s", name);
                 }
                 unlink(out);
             }
@@ -242,6 +362,7 @@ int gm_deb_extract(const char *archive, const char *destDir, char **err) {
         if (size % 2) fseek(f, 1, SEEK_CUR);   /* ar 对齐 */
     }
     fclose(f);
+    if (rc != 0 && err && !*err) seterr(err, "deb 中未找到可用的 data.tar（可能是不支持的压缩格式）");
     return rc;
 }
 

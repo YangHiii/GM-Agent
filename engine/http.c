@@ -1,5 +1,6 @@
 /* GM Agent · HTTPS 传输实现（OpenSSL + getaddrinfo，chunked 解码，SSE 友好） */
 #include "http.h"
+#include "gm_engine.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 #include <unistd.h>
 #include <netdb.h>
 #include <sys/socket.h>
+#include <poll.h>
 #include <sys/time.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -130,6 +132,24 @@ static int write_all(SSL *ssl, int fd, const char *data, size_t len) {
         off += (size_t)n;
     }
     return 0;
+}
+
+static int read_some(SSL *ssl, int fd, char *buf, size_t cap);
+
+/* 带空闲超时的读取：无数据超过 idle_ms 返回 -2（超时） */
+static int read_some_idle(SSL *ssl, int fd, char *buf, size_t cap, int idle_ms) {
+    int waited = 0;
+    for (;;) {
+        struct pollfd pfd = { fd, POLLIN, 0 };
+        int pr = poll(&pfd, 1, 200);
+        if (pr > 0) break;
+        if (pr < 0) return -1;
+        waited += 200;
+        if (waited >= idle_ms) return -2;
+        /* 优先消耗 SSL 内部已解密数据 */
+        if (ssl && SSL_pending(ssl) > 0) break;
+    }
+    return read_some(ssl, fd, buf, cap);
 }
 
 static int read_some(SSL *ssl, int fd, char *buf, size_t cap) {
@@ -294,7 +314,8 @@ int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body
                 cb_len -= pos;
             }
             if (state == 3) break;
-            int r = read_some(ssl, fd, buf, 65536 - 1);
+            int r = read_some_idle(ssl, fd, buf, 65536 - 1, 45000);
+            if (r == -2) { gm_logf("SSE 空闲 45 秒，主动结束"); break; }
             if (r <= 0) break;
             blen = (size_t)r;
             consumed = 0;
@@ -309,9 +330,10 @@ int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body
             return 0;
         }
         for (;;) {
-            int r = read_some(ssl, fd, buf, 65536 - 1);
+            int r = read_some_idle(ssl, fd, buf, 65536 - 1, 45000);
+            if (r == -2) { gm_logf("响应空闲 45 秒，主动结束"); break; }
             if (r <= 0) break;
-            if (on_body && on_body(ctx, buf, (size_t)r) != 0) break;   /* 客户端要求结束 */
+            if (on_body && on_body(ctx, buf, (size_t)r) != 0) break;
         }
     }
 

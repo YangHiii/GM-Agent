@@ -140,7 +140,8 @@ int gm_engine_main(int argc, char **argv) {
     (void)argc;
     (void)argv;
     setvbuf(stdout, NULL, _IOLBF, 0);
-    fprintf(stderr, "[gm-engine] %s starting\n", GM_VERSION);
+    gm_log_init();
+    gm_logf("engine %s starting, HOME=%s", GM_VERSION, getenv("HOME") ?: "(null)");
 
     gm_arena_init(&g_out, OUT_ARENA_SIZE);
     gm_arena_init(&g_turn, ARENA_SIZE);
@@ -190,7 +191,7 @@ int gm_engine_main(int argc, char **argv) {
             GMPVal *hist = gm_session_load_history(tid, &g_turn);
             gm_obj_set(&g_turn, r, "messages", hist);
             gm_obj_set(&g_turn, r, "count", gm_val_num(&g_turn, (double)gm_arr_count(hist)));
-            fprintf(stderr, "[gm] history %s -> %zu 条\n", tid ? tid : "(null)", gm_arr_count(hist));
+            gm_logf("history %s -> %zu 条", tid ? tid : "(null)", gm_arr_count(hist));
             reply(&g_turn, id, r, NULL);
         } else if (method && strcmp(method, "gm/ping") == 0) {
             reply(&g_turn, id, gm_val_str(&g_turn, "pong"), NULL);
@@ -241,7 +242,7 @@ int gm_engine_main(int argc, char **argv) {
             const char *model = gm_str(gm_obj_get(params, "model"));
             if (base && *base) {
                 snprintf(g_prov.base_url, sizeof(g_prov.base_url), "%s", base);
-                fprintf(stderr, "[gm] config base=%s\n", g_prov.base_url);
+                gm_logf("config base=%s key=%s model=%s", g_prov.base_url, g_prov.api_key[0] ? "(set)" : "(empty)", g_prov.model);
             }
             if (key) snprintf(g_prov.api_key, sizeof(g_prov.api_key), "%s", key);
             if (model) snprintf(g_prov.model, sizeof(g_prov.model), "%s", model);
@@ -254,7 +255,7 @@ int gm_engine_main(int argc, char **argv) {
             if (tb && *tb) snprintf(g_prov.base_url, sizeof(g_prov.base_url), "%s", tb);
             if (tk && *tk) snprintf(g_prov.api_key, sizeof(g_prov.api_key), "%s", tk);
             if (tm && *tm) snprintf(g_prov.model, sizeof(g_prov.model), "%s", tm);
-            fprintf(stderr, "[gm] turn model=%s key=%s base=%s\n",
+            gm_logf("turn start model=%s key=%s base=%s",
                     g_prov.model, g_prov.api_key[0] ? "(set)" : "(empty)", g_prov.base_url);
 
             if (g_turnRunning) {

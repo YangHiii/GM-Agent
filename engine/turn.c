@@ -113,7 +113,7 @@ int gm_turn_run(GMArena *arena, const GMProvider *prov, GMSession *session,
            若返回 400 且错误体提到 tool/function，自动去掉 tools 重试一次 */
         if (rc != 0 && err && strstr(err, "400") &&
             (strstr(err, "tool") || strstr(err, "function") || strstr(err, "Tool"))) {
-            fprintf(stderr, "[gm] 模型不支持 tools，去掉后重试\n");
+            gm_logf("模型不支持 tools，去掉后重试");
             GMArena body2;
             gm_arena_init(&body2, 4 * 1024 * 1024);
             GMPVal *b2 = gm_val_obj(&body2);

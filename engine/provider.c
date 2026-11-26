@@ -146,13 +146,14 @@ int gm_provider_chat(const GMProvider *p, const char *body_json,
     GMHttpResp resp;
     c.resp = &resp;
     /* 打印请求体前缀，便于诊断 400 */
-    fprintf(stderr, "[gm] POST %s\n[gm] body: %.600s\n", p->base_url, body_json);
+    gm_logf("POST %s body=%.400s", p->base_url, body_json);
     int rc = gm_http_perform(&req, &resp, http_body_cb, &c);
 
     gm_sse_finish(&sse);
     gm_arena_reset(&c.arena);
     /* NOTE: arena 在下面还要用，先不释放 */
 
+    gm_logf("resp rc=%d status=%d done=%d errlen=%zu finish=%s", rc, resp.status, c.done, c.errlen, c.finish_reason);
     int failed = 0;
     if (rc != 0) {
         failed = 1;

@@ -5,7 +5,7 @@ cd "$(dirname "$0")/.."
 CC=${CC:-cc}
 BIN=${TMPDIR:-/tmp}/gm-engine-test
 echo "== 编译"
-$CC -std=gnu99 -O2 -Wall -Iengine -o "$BIN" engine/*.c -lssl -lcrypto -lz
+$CC -std=gnu99 -O2 -Wall -Iengine -o "$BIN" engine/*.c -lssl -lcrypto -lz -lzstd
 
 echo "== 协议往返"
 REQ='{"jsonrpc":"2.0","id":1,"method":"gm/initialize","params":{}}
