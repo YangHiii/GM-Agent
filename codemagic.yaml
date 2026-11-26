@@ -59,23 +59,25 @@ workflows:
         script: |
           set -eu
           APP=build/GMAgent.app
-          cp app/Resources/Info.plist "$APP/Info.plist"
-          cp app/Resources/cacert.pem "$APP/cacert.pem"
-          cp -R app/Resources/Helpers "$APP/Helpers"
+          cp "$CM_BUILD_DIR/app/Resources/Info.plist" "$APP/Info.plist"
+          cp "$CM_BUILD_DIR/app/Resources/cacert.pem" "$APP/cacert.pem"
+          cp -R "$CM_BUILD_DIR/app/Resources/Helpers" "$APP/Helpers"
           chmod +x "$APP/Helpers/"* 2>/dev/null || true
           # 建立 busybox 风格的多调用链接（argv[0] 分发）
-          cd "$APP/Helpers"
-          for c in cat ls grep sed head tail wc find xargs sort uniq cut tr tee stat du date \
-                   uname which readlink realpath mkdir rm rmdir mv cp ln chmod touch od xxd \
-                   basename dirname nl tar env true false pwd sleep; do
-            ln -sf ca-filetool "$c"
-          done
-          ln -sf bash.real bash
-          ln -sf bash.real sh
-          ls -la | head -40
-          cp build/libgm-engine.dylib "$APP/libgm-engine.dylib"
+          (
+            cd "$APP/Helpers"
+            for c in cat ls grep sed head tail wc find xargs sort uniq cut tr tee stat du date \
+                     uname which readlink realpath mkdir rm rmdir mv cp ln chmod touch od xxd \
+                     basename dirname nl tar env true false pwd sleep; do
+              ln -sf ca-filetool "$c"
+            done
+            ln -sf bash.real bash
+            ln -sf bash.real sh
+            echo "== Helpers 链接数: $(ls -1 | wc -l)"
+          )
+          cp "$CM_BUILD_DIR/build/libgm-engine.dylib" "$APP/libgm-engine.dylib"
           chmod +x "$APP/GMAgent"
-          ls -la "$APP"
+          pwd; ls -la "$APP"
           # 自检：版本号与 Scene 清单必须在（防止再出现"改不动"的包）
           /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$APP/Info.plist"
