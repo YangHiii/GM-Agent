@@ -5,9 +5,10 @@
 #import "GMDevViewController.h"
 #import "GMSessionListViewController.h"
 #import "GMSessionStore.h"
+#import "GMMarkdown.h"
 
 @interface GMChatCell : UITableViewCell
-@property (nonatomic, strong) UILabel *bodyLabel;
+@property (nonatomic, strong) UITextView *bodyView;
 @property (nonatomic, strong) UILabel *metaLabel;
 @end
 
@@ -17,25 +18,29 @@
     if ((self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:reuseIdentifier])) {
         self.backgroundColor = UIColor.clearColor;
         self.selectionStyle = UITableViewCellSelectionStyleNone;
-        _bodyLabel = [UILabel new];
-        _bodyLabel.numberOfLines = 0;
-        _bodyLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightRegular];
-        _bodyLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        _bodyView = [UITextView new];
+        _bodyView.editable = NO;
+        _bodyView.scrollEnabled = NO;
+        _bodyView.selectable = YES;
+        _bodyView.backgroundColor = UIColor.clearColor;
+        _bodyView.textContainerInset = UIEdgeInsetsZero;
+        _bodyView.textContainer.lineFragmentPadding = 0;
+        _bodyView.translatesAutoresizingMaskIntoConstraints = NO;
         _metaLabel = [UILabel new];
         _metaLabel.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
         _metaLabel.textColor = UIColor.secondaryLabelColor;
         _metaLabel.numberOfLines = 0;
         _metaLabel.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_metaLabel];
-        [self.contentView addSubview:_bodyLabel];
+        [self.contentView addSubview:_bodyView];
         [NSLayoutConstraint activateConstraints:@[
             [_metaLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:10],
             [_metaLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
             [_metaLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
-            [_bodyLabel.topAnchor constraintEqualToAnchor:_metaLabel.bottomAnchor constant:4],
-            [_bodyLabel.leadingAnchor constraintEqualToAnchor:_metaLabel.leadingAnchor],
-            [_bodyLabel.trailingAnchor constraintEqualToAnchor:_metaLabel.trailingAnchor],
-            [_bodyLabel.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
+            [_bodyView.topAnchor constraintEqualToAnchor:_metaLabel.bottomAnchor constant:4],
+            [_bodyView.leadingAnchor constraintEqualToAnchor:_metaLabel.leadingAnchor],
+            [_bodyView.trailingAnchor constraintEqualToAnchor:_metaLabel.trailingAnchor],
+            [_bodyView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
         ]];
     }
     return self;
@@ -67,6 +72,26 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.agentName"] ?: @"GM Agent";
+
+    /* 副标题显示累计 token */
+    UILabel *sub = [UILabel new];
+    sub.font = [UIFont monospacedSystemFontOfSize:9 weight:UIFontWeightRegular];
+    sub.textColor = UIColor.secondaryLabelColor;
+    sub.textAlignment = NSTextAlignmentCenter;
+    sub.tag = 777;
+    self.navigationItem.titleView = ({
+        UIView *box = [[UIView alloc] initWithFrame:CGRectMake(0, 0, 200, 36)];
+        UILabel *main = [UILabel new];
+        main.text = self.title;
+        main.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+        main.textAlignment = NSTextAlignmentCenter;
+        main.frame = CGRectMake(0, 0, 200, 22);
+        sub.frame = CGRectMake(0, 20, 200, 12);
+        [box addSubview:main];
+        [box addSubview:sub];
+        box;
+    });
+    [self updateTokenLabel];
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     self.navigationItem.leftBarButtonItem =
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"list.bullet"]
@@ -172,6 +197,15 @@
     [self.conversation sendUserText:text];
 }
 
+- (void)updateTokenLabel {
+    UILabel *sub = [self.navigationItem.titleView viewWithTag:777];
+    if (!sub) return;
+    long long in = self.conversation.totalInputTokens;
+    long long out = self.conversation.totalOutputTokens;
+    if (in + out == 0) { sub.text = @""; return; }
+    sub.text = [NSString stringWithFormat:@"↑%lld ↓%lld tokens", in, out];
+}
+
 - (void)updateSendButton {
     NSString *sym = self.generating ? @"stop.circle.fill" : @"arrow.up.circle.fill";
     [self.sendButton setImage:[UIImage systemImageNamed:sym] forState:UIControlStateNormal];
@@ -208,6 +242,7 @@
     GMMessage *last = conversation.messages.lastObject;
     self.generating = last.streaming;
     [self updateSendButton];
+    [self updateTokenLabel];
     [self.table reloadData];
     NSInteger n = [self.table numberOfRowsInSection:0];
     if (n > 0) {
@@ -237,41 +272,62 @@
     if (indexPath.row >= list.count) return cell;   /* 越界保护 */
     GMMessage *m = list[indexPath.row];
     switch (m.role) {
-        case GMRoleUser:
+        case GMRoleUser: {
             cell.metaLabel.text = @"你";
-            cell.bodyLabel.textColor = UIColor.labelColor;
-            cell.bodyLabel.text = m.text;
+            cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:m.text ?: @""
+                attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15],
+                             NSForegroundColorAttributeName: UIColor.labelColor}];
             break;
-        case GMRoleTool:
+        }
+        case GMRoleTool: {
             cell.metaLabel.text = [NSString stringWithFormat:@"工具 · %@", m.toolName ?: @"tool"];
-            cell.bodyLabel.textColor = UIColor.tertiaryLabelColor;
-            cell.bodyLabel.text = m.toolSummary ?: @"";
+            NSString *body = m.toolSummary ?: @"";
+            cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:body
+                attributes:@{NSFontAttributeName: [UIFont monospacedSystemFontOfSize:11.5
+                                                                              weight:UIFontWeightRegular],
+                             NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}];
             break;
-        case GMRoleSystem:
+        }
+        case GMRoleSystem: {
             cell.metaLabel.text = @"系统";
-            cell.bodyLabel.textColor = UIColor.secondaryLabelColor;
-            cell.bodyLabel.text = m.text;
+            cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:m.text ?: @""
+                attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13],
+                             NSForegroundColorAttributeName: UIColor.secondaryLabelColor}];
             break;
+        }
         default: {
             cell.metaLabel.text = m.streaming ? @"GM Agent · 生成中…" : @"GM Agent";
             BOOL simple = [[NSUserDefaults standardUserDefaults] boolForKey:@"gm.simpleDisplay"];
-            NSMutableString *body = [NSMutableString string];
+            NSMutableAttributedString *body = [[NSMutableAttributedString alloc] init];
 
-            /* 思考过程：折叠为一行；展开才显示全文 */
+            /* 思考过程：默认折叠为一行 */
             if (m.reasoning.length && !simple) {
                 if (m.reasoningExpanded) {
-                    [body appendFormat:@"💭 思考过程（点此收起）\n%@\n\n────────\n\n", m.reasoning];
+                    NSString *head = @"💭 思考过程（点此收起）\n";
+                    [body appendAttributedString:[[NSAttributedString alloc] initWithString:head
+                        attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12],
+                                     NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}]];
+                    [body appendAttributedString:[[NSAttributedString alloc] initWithString:
+                        [m.reasoning stringByAppendingString:@"\n────────\n"]
+                        attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12],
+                                     NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}]];
                 } else {
-                    [body appendFormat:@"💭 思考过程（%lu 字，点此展开）\n\n", (unsigned long)m.reasoning.length];
+                    NSString *fold = [NSString stringWithFormat:@"💭 思考过程（%lu 字，点此展开）\n\n",
+                                      (unsigned long)m.reasoning.length];
+                    [body appendAttributedString:[[NSAttributedString alloc] initWithString:fold
+                        attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12],
+                                     NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}]];
                 }
             }
-            if (m.text.length) [body appendString:m.text];
-            else if (m.streaming) [body appendString:@"…"];
 
-            cell.metaLabel.text = m.streaming ? @"GM Agent · 生成中…" : @"GM Agent";
-            cell.bodyLabel.text = body;
-            cell.bodyLabel.font = [UIFont systemFontOfSize:15];
-            cell.bodyLabel.textColor = UIColor.labelColor;
+            if (m.text.length) {
+                [body appendAttributedString:[GMMarkdown render:m.text]];
+            } else if (m.streaming) {
+                [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…"
+                    attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15],
+                                 NSForegroundColorAttributeName: UIColor.secondaryLabelColor}]];
+            }
+            cell.bodyView.attributedText = body;
             break;
         }
     }

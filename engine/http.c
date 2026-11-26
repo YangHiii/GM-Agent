@@ -10,6 +10,7 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <poll.h>
+#include <time.h>
 #include <sys/time.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
@@ -252,6 +253,11 @@ int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body
     if (sscanf(buf, "HTTP/%*d.%*d %d", &st) == 1) resp->status = st;
     resp->ok = 1;
 
+    /* 总时长看门狗 */
+    struct timespec t_start;
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
+    long long deadline_ms = (long long)timeout * 1000;
+
     int chunked = 0;
     char *cl = ci_strstr(buf, "\r\ncontent-length:");
     if (cl) resp->content_length = atoll(cl + 17);
@@ -304,9 +310,25 @@ int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body
                     if (remain == 0) state = 2;
                     progress = 1;
                 } else if (state == 2) {
-                    while (pos < cb_len && (cbuf[pos] == '\r' || cbuf[pos] == '\n')) pos++;
-                    state = 0;
-                    progress = 1;
+                    /* chunk 数据后必须完整消费 "\r\n" 才能回到长度行。
+                       若两个字节被拆到不同 TCP 包，必须保持 state=2 等下一包，
+                       否则单独的 '\n' 会被当成 "size=0" 导致流提前结束。 */
+                    if (pos < cb_len && cbuf[pos] == '\r') {
+                        pos++;
+                        if (pos < cb_len) {
+                            if (cbuf[pos] == '\n') pos++;
+                            state = 0;
+                            progress = 1;
+                        } else {
+                            break;   /* 等 '\n' */
+                        }
+                    } else if (pos < cb_len && cbuf[pos] == '\n') {
+                        pos++;
+                        state = 0;
+                        progress = 1;
+                    } else {
+                        break;       /* 一个字节都没到 */
+                    }
                 } else break;
             }
             if (pos) {
@@ -314,6 +336,12 @@ int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body
                 cb_len -= pos;
             }
             if (state == 3) break;
+            struct timespec now2;
+            clock_gettime(CLOCK_MONOTONIC, &now2);
+            long long elapsed = (now2.tv_sec - t_start.tv_sec) * 1000LL +
+                                (now2.tv_nsec - t_start.tv_nsec) / 1000000;
+            if (elapsed > deadline_ms) { gm_logf("请求总时长超过 %d 秒，强制结束", timeout); break; }
+
             int r = read_some_idle(ssl, fd, buf, 65536 - 1, 45000);
             if (r == -2) { gm_logf("SSE 空闲 45 秒，主动结束"); break; }
             if (r <= 0) break;

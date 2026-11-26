@@ -25,6 +25,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)newThread;
 - (void)pushConfigToEngine;
 - (void)loadThread:(NSString *)threadID;
+@property (nonatomic, readonly) long long totalInputTokens;
+@property (nonatomic, readonly) long long totalOutputTokens;
 @property (nonatomic, readonly) NSString *currentThreadID;
 @end
 

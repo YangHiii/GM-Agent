@@ -21,6 +21,8 @@
         _bridge.delegate = self;
         _msgs = [NSMutableArray array];
         _toolMessages = [NSMutableDictionary dictionary];
+        _totalInputTokens = [[[NSUserDefaults standardUserDefaults] objectForKey:@"gm.tokens.in"] longLongValue];
+        _totalOutputTokens = [[[NSUserDefaults standardUserDefaults] objectForKey:@"gm.tokens.out"] longLongValue];
         _model = @"gpt-5.2";
         _effort = @"medium";
         _provider = @"openai";
@@ -202,6 +204,17 @@ static NSString *GMFriendlyError(NSString *raw) {
 #pragma mark - GMBridgeDelegate
 
 - (void)bridge:(GMBridge *)bridge didReceiveNotification:(NSDictionary *)n {
+    // 累计 token
+    if ([n[@"method"] isEqualToString:@"gm/event/turnEnd"]) {
+        NSDictionary *pp = n[@"params"];
+        if ([pp isKindOfClass:[NSDictionary class]]) {
+            _totalInputTokens += [pp[@"inputTokens"] longLongValue];
+            _totalOutputTokens += [pp[@"outputTokens"] longLongValue];
+            NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+            [d setObject:@(_totalInputTokens) forKey:@"gm.tokens.in"];
+            [d setObject:@(_totalOutputTokens) forKey:@"gm.tokens.out"];
+        }
+    }
     NSString *method = n[@"method"];
     NSDictionary *params = [n[@"params"] isKindOfClass:[NSDictionary class]] ? n[@"params"] : @{};
     id item = params[@"item"];
