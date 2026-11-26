@@ -204,7 +204,17 @@ int gm_turn_run(GMArena *arena, const GMProvider *prov, GMSession *session,
 
             int code = 0;
             char *out = NULL;
-            if (strcmp(t.tc_name[i], "open_app") == 0) {
+            if (strcmp(t.tc_name[i], "memory_remember") == 0) {
+                out = gm_tool_memory_remember(t.tc_args[i].p ? t.tc_args[i].p : "{}");
+            } else if (strcmp(t.tc_name[i], "memory_recall") == 0) {
+                out = gm_tool_memory_recall(t.tc_args[i].p ? t.tc_args[i].p : "{}");
+            } else if (strcmp(t.tc_name[i], "read_file") == 0) {
+                out = gm_tool_read_file(t.tc_args[i].p ? t.tc_args[i].p : "{}", &code);
+            } else if (strcmp(t.tc_name[i], "write_file") == 0) {
+                out = gm_tool_write_file(t.tc_args[i].p ? t.tc_args[i].p : "{}", &code);
+            } else if (strcmp(t.tc_name[i], "list_dir") == 0) {
+                out = gm_tool_list_dir(t.tc_args[i].p ? t.tc_args[i].p : "{}", &code);
+            } else if (strcmp(t.tc_name[i], "open_app") == 0) {
                 GMHostToolFn host = gm_host_tool_handler();
                 char *hostOut = NULL;
                 int hrc = host ? host("open_app", t.tc_args[i].p ? t.tc_args[i].p : "{}", &hostOut) : -2;

@@ -7,6 +7,8 @@
 #include <errno.h>
 #include <poll.h>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <time.h>
 
 #define TOOL_OUT_CAP (512 * 1024)
@@ -219,6 +221,218 @@ char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, in
     return out;
 }
 
+
+/* ---------- 记忆 / 文件工具 ---------- */
+
+static char *json_field(const char *json, const char *key) {
+    if (!json || !key) return NULL;
+    char pat[64];
+    snprintf(pat, sizeof(pat), "\"%s\"", key);
+    const char *p = strstr(json, pat);
+    if (!p) return NULL;
+    p = strchr(p + strlen(pat), ':');
+    if (!p) return NULL;
+    p++;
+    while (*p == ' ' || *p == '\t') p++;
+    if (*p != '"') {
+        const char *e = p;
+        while (*e && *e != ',' && *e != '}') e++;
+        size_t n = (size_t)(e - p);
+        char *o = malloc(n + 1);
+        if (o) { memcpy(o, p, n); o[n] = 0; }
+        return o;
+    }
+    p++;
+    size_t cap = strlen(p) + 8;
+    char *o = malloc(cap);
+    if (!o) return NULL;
+    size_t w = 0;
+    const char *q = p;
+    while (*q && *q != '"') {
+        if (*q == '\\' && q[1]) {
+            q++;
+            char c = *q;
+            o[w++] = (c == 'n') ? '\n' : ((c == 't') ? '\t' : ((c == 'r') ? '\r' : c));
+        } else {
+            o[w++] = *q;
+        }
+        q++;
+    }
+    o[w] = 0;
+    return o;
+}
+
+static char *memory_path(void) {
+    const char *dir = getenv("GM_MEMORY_DIR");
+    if (!dir || !*dir) dir = "/var/mobile/.gm";
+    static char path[600];
+    snprintf(path, sizeof(path), "%s/memory.md", dir);
+    return path;
+}
+
+static void ensure_dir(const char *dir) {
+    char tmp[1024];
+    snprintf(tmp, sizeof(tmp), "%s", dir);
+    for (char *q = tmp + 1; *q; q++) {
+        if (*q == '/') { *q = 0; mkdir(tmp, 0755); *q = '/'; }
+    }
+    mkdir(tmp, 0755);
+}
+
+char *gm_tool_memory_remember(const char *args) {
+    char *content = json_field(args, "content");
+    if (!content || !*content) { free(content); return strdup("缺少 content"); }
+    const char *dir = getenv("GM_MEMORY_DIR");
+    if (dir && *dir) ensure_dir(dir);
+    FILE *f = fopen(memory_path(), "a");
+    if (!f) { free(content); return strdup("无法写入记忆文件"); }
+    time_t t = time(NULL);
+    struct tm tmv;
+    localtime_r(&t, &tmv);
+    fprintf(f, "\n- [%04d-%02d-%02d %02d:%02d] %s\n",
+            tmv.tm_year + 1900, tmv.tm_mon + 1, tmv.tm_mday,
+            tmv.tm_hour, tmv.tm_min, content);
+    fclose(f);
+    gm_logf("记忆已保存 (%zu 字)", strlen(content));
+    free(content);
+    return strdup("已记住");
+}
+
+char *gm_tool_memory_recall(const char *args) {
+    char *query = json_field(args, "query");
+    FILE *f = fopen(memory_path(), "r");
+    if (!f) { free(query); return strdup("(还没有任何记忆)"); }
+    size_t cap = 65536, len = 0;
+    char *out = malloc(cap);
+    if (!out) { fclose(f); free(query); return strdup("内存不足"); }
+    out[0] = 0;
+    char line[2048];
+    int hits = 0, total = 0;
+    while (fgets(line, sizeof(line), f)) {
+        total++;
+        if (!query || !*query || strstr(line, query)) {
+            size_t n = strlen(line);
+            if (len + n + 1 < cap) { memcpy(out + len, line, n); len += n; out[len] = 0; }
+            hits++;
+            if (hits >= 200) break;
+        }
+    }
+    fclose(f);
+    free(query);
+    if (hits == 0) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "(未找到匹配记忆，共 %d 条)", total);
+        free(out);
+        return strdup(msg);
+    }
+    return out;
+}
+
+char *gm_tool_read_file(const char *args, int *code) {
+    char *path = json_field(args, "path");
+    if (!path) { if (code) *code = 1; return strdup("缺少 path"); }
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        char msg[600];
+        snprintf(msg, sizeof(msg), "无法打开: %s", path);
+        free(path);
+        if (code) *code = 1;
+        return strdup(msg);
+    }
+    size_t cap = 262144, len = 0;
+    char *out = malloc(cap);
+    if (!out) { fclose(f); free(path); if (code) *code = 1; return strdup("内存不足"); }
+    out[0] = 0;
+    char line[4096];
+    int n = 0;
+    while (fgets(line, sizeof(line), f) && n < 2000) {
+        n++;
+        char head[24];
+        int hn = snprintf(head, sizeof(head), "%5d| ", n);
+        size_t ll = strlen(line);
+        if (len + (size_t)hn + ll + 1 < cap) {
+            memcpy(out + len, head, (size_t)hn); len += (size_t)hn;
+            memcpy(out + len, line, ll); len += ll;
+            out[len] = 0;
+        }
+    }
+    fclose(f);
+    free(path);
+    if (code) *code = 0;
+    return out;
+}
+
+char *gm_tool_write_file(const char *args, int *code) {
+    char *path = json_field(args, "path");
+    char *content = json_field(args, "content");
+    if (!path || !content) {
+        free(path); free(content);
+        if (code) *code = 1;
+        return strdup("缺少 path 或 content");
+    }
+    FILE *f = fopen(path, "w");
+    if (!f) {
+        char msg[600];
+        snprintf(msg, sizeof(msg), "无法写入: %s", path);
+        free(path); free(content);
+        if (code) *code = 1;
+        return strdup(msg);
+    }
+    fputs(content, f);
+    fclose(f);
+    char msg[700];
+    snprintf(msg, sizeof(msg), "已写入 %s（%zu 字节）", path, strlen(content));
+    free(path); free(content);
+    if (code) *code = 0;
+    return strdup(msg);
+}
+
+char *gm_tool_list_dir(const char *args, int *code) {
+    char *path = json_field(args, "path");
+    if (!path) { if (code) *code = 1; return strdup("缺少 path"); }
+    DIR *d = opendir(path);
+    if (!d) {
+        char msg[600];
+        snprintf(msg, sizeof(msg), "无法打开目录: %s", path);
+        free(path);
+        if (code) *code = 1;
+        return strdup(msg);
+    }
+    size_t cap = 131072, len = 0;
+    char *out = malloc(cap);
+    if (!out) { closedir(d); free(path); if (code) *code = 1; return strdup("内存不足"); }
+    out[0] = 0;
+    struct dirent *e;
+    int n = 0;
+    while ((e = readdir(d)) != NULL && n < 500) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        char full[1600];
+        snprintf(full, sizeof(full), "%s/%s", path, e->d_name);
+        struct stat st;
+        char kind = '?';
+        long long size = 0;
+        if (lstat(full, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) kind = 'd';
+            else if (S_ISLNK(st.st_mode)) kind = 'l';
+            else kind = '-';
+            size = (long long)st.st_size;
+        }
+        char line[2200];
+        int ln = (kind == 'd')
+            ? snprintf(line, sizeof(line), "d %12s  %s/\n", "-", e->d_name)
+            : snprintf(line, sizeof(line), "%c %12lld  %s\n", kind, size, e->d_name);
+        if (ln > 0 && len + (size_t)ln + 1 < cap) {
+            memcpy(out + len, line, (size_t)ln); len += (size_t)ln; out[len] = 0;
+        }
+        n++;
+    }
+    closedir(d);
+    free(path);
+    if (n == 0) { strncat(out, "(空目录)\n", cap - strlen(out) - 1); }
+    if (code) *code = 0;
+    return out;
+}
+
 GMPVal *gm_tool_specs(GMArena *a) {
     GMPVal *tools = gm_val_arr(a);
     GMPVal *t = gm_val_obj(a);
@@ -267,5 +481,113 @@ GMPVal *gm_tool_specs(GMArena *a) {
     gm_obj_set(a, fn2, "parameters", p2);
     gm_obj_set(a, t2, "function", fn2);
     gm_arr_push(a, tools, t2);
+
+    /* 记忆：保存 */
+    GMPVal *t3 = gm_val_obj(a);
+    gm_obj_set(a, t3, "type", gm_val_str(a, "function"));
+    GMPVal *f3 = gm_val_obj(a);
+    gm_obj_set(a, f3, "name", gm_val_str(a, "memory_remember"));
+    gm_obj_set(a, f3, "description", gm_val_str(a, "把重要事实写入长期记忆（跨会话保留）。"));
+    GMPVal *p3 = gm_val_obj(a);
+    gm_obj_set(a, p3, "type", gm_val_str(a, "object"));
+    GMPVal *pr3 = gm_val_obj(a);
+    GMPVal *c3 = gm_val_obj(a);
+    gm_obj_set(a, c3, "type", gm_val_str(a, "string"));
+    gm_obj_set(a, c3, "description", gm_val_str(a, "要记住的内容"));
+    gm_obj_set(a, pr3, "content", c3);
+    gm_obj_set(a, p3, "properties", pr3);
+    GMPVal *r3 = gm_val_arr(a);
+    gm_arr_push(a, r3, gm_val_str(a, "content"));
+    gm_obj_set(a, p3, "required", r3);
+    gm_obj_set(a, f3, "parameters", p3);
+    gm_obj_set(a, t3, "function", f3);
+    gm_arr_push(a, tools, t3);
+
+    /* 记忆：检索 */
+    GMPVal *t4 = gm_val_obj(a);
+    gm_obj_set(a, t4, "type", gm_val_str(a, "function"));
+    GMPVal *f4 = gm_val_obj(a);
+    gm_obj_set(a, f4, "name", gm_val_str(a, "memory_recall"));
+    gm_obj_set(a, f4, "description", gm_val_str(a, "按关键词检索长期记忆。"));
+    GMPVal *p4 = gm_val_obj(a);
+    gm_obj_set(a, p4, "type", gm_val_str(a, "object"));
+    GMPVal *pr4 = gm_val_obj(a);
+    GMPVal *c4 = gm_val_obj(a);
+    gm_obj_set(a, c4, "type", gm_val_str(a, "string"));
+    gm_obj_set(a, c4, "description", gm_val_str(a, "关键词，空则返回最近记忆"));
+    gm_obj_set(a, pr4, "query", c4);
+    gm_obj_set(a, p4, "properties", pr4);
+    gm_obj_set(a, f4, "parameters", p4);
+    gm_obj_set(a, t4, "function", f4);
+    gm_arr_push(a, tools, t4);
+
+    /* 文件读取 */
+    GMPVal *t5 = gm_val_obj(a);
+    gm_obj_set(a, t5, "type", gm_val_str(a, "function"));
+    GMPVal *f5 = gm_val_obj(a);
+    gm_obj_set(a, f5, "name", gm_val_str(a, "read_file"));
+    gm_obj_set(a, f5, "description", gm_val_str(a, "读取文本文件内容（带行号，最多 2000 行）。"));
+    GMPVal *p5 = gm_val_obj(a);
+    gm_obj_set(a, p5, "type", gm_val_str(a, "object"));
+    GMPVal *pr5 = gm_val_obj(a);
+    GMPVal *c5 = gm_val_obj(a);
+    gm_obj_set(a, c5, "type", gm_val_str(a, "string"));
+    gm_obj_set(a, c5, "description", gm_val_str(a, "文件绝对路径"));
+    gm_obj_set(a, pr5, "path", c5);
+    gm_obj_set(a, p5, "properties", pr5);
+    GMPVal *r5 = gm_val_arr(a);
+    gm_arr_push(a, r5, gm_val_str(a, "path"));
+    gm_obj_set(a, p5, "required", r5);
+    gm_obj_set(a, f5, "parameters", p5);
+    gm_obj_set(a, t5, "function", f5);
+    gm_arr_push(a, tools, t5);
+
+    /* 文件写入 */
+    GMPVal *t6 = gm_val_obj(a);
+    gm_obj_set(a, t6, "type", gm_val_str(a, "function"));
+    GMPVal *f6 = gm_val_obj(a);
+    gm_obj_set(a, f6, "name", gm_val_str(a, "write_file"));
+    gm_obj_set(a, f6, "description", gm_val_str(a, "把内容写入文件（覆盖）。"));
+    GMPVal *p6 = gm_val_obj(a);
+    gm_obj_set(a, p6, "type", gm_val_str(a, "object"));
+    GMPVal *pr6 = gm_val_obj(a);
+    GMPVal *c6a = gm_val_obj(a);
+    gm_obj_set(a, c6a, "type", gm_val_str(a, "string"));
+    gm_obj_set(a, c6a, "description", gm_val_str(a, "文件绝对路径"));
+    gm_obj_set(a, pr6, "path", c6a);
+    GMPVal *c6b = gm_val_obj(a);
+    gm_obj_set(a, c6b, "type", gm_val_str(a, "string"));
+    gm_obj_set(a, c6b, "description", gm_val_str(a, "文件内容"));
+    gm_obj_set(a, pr6, "content", c6b);
+    gm_obj_set(a, p6, "properties", pr6);
+    GMPVal *r6 = gm_val_arr(a);
+    gm_arr_push(a, r6, gm_val_str(a, "path"));
+    gm_arr_push(a, r6, gm_val_str(a, "content"));
+    gm_obj_set(a, p6, "required", r6);
+    gm_obj_set(a, f6, "parameters", p6);
+    gm_obj_set(a, t6, "function", f6);
+    gm_arr_push(a, tools, t6);
+
+    /* 目录列表 */
+    GMPVal *t7 = gm_val_obj(a);
+    gm_obj_set(a, t7, "type", gm_val_str(a, "function"));
+    GMPVal *f7 = gm_val_obj(a);
+    gm_obj_set(a, f7, "name", gm_val_str(a, "list_dir"));
+    gm_obj_set(a, f7, "description", gm_val_str(a, "列出目录内容（名称/类型/大小）。"));
+    GMPVal *p7 = gm_val_obj(a);
+    gm_obj_set(a, p7, "type", gm_val_str(a, "object"));
+    GMPVal *pr7 = gm_val_obj(a);
+    GMPVal *c7 = gm_val_obj(a);
+    gm_obj_set(a, c7, "type", gm_val_str(a, "string"));
+    gm_obj_set(a, c7, "description", gm_val_str(a, "目录路径"));
+    gm_obj_set(a, pr7, "path", c7);
+    gm_obj_set(a, p7, "properties", pr7);
+    GMPVal *r7 = gm_val_arr(a);
+    gm_arr_push(a, r7, gm_val_str(a, "path"));
+    gm_obj_set(a, p7, "required", r7);
+    gm_obj_set(a, f7, "parameters", p7);
+    gm_obj_set(a, t7, "function", f7);
+    gm_arr_push(a, tools, t7);
+
     return tools;
 }

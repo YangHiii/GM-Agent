@@ -107,6 +107,11 @@ static void *engineThread(void *ctx) {
     [[NSFileManager defaultManager] createDirectoryAtPath:codexHome
                               withIntermediateDirectories:YES attributes:nil error:nil];
     setenv("GM_CODEX_HOME", codexHome.fileSystemRepresentation, 1);
+    NSString *memDir = [cache stringByAppendingPathComponent:@"memory"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:memDir
+                              withIntermediateDirectories:YES attributes:nil error:nil];
+    setenv("GM_MEMORY_DIR", memDir.fileSystemRepresentation, 1);
+    GMLog(@"记忆目录: %@", memDir);
     GMLog(@"Codex 目录: %@", codexHome);
 
     NSString *engLog = [cache stringByAppendingPathComponent:@"engine.log"];

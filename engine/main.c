@@ -333,13 +333,19 @@ int gm_engine_main(int argc, char **argv) {
             job->text = strdup(text ? text : "");
             {
                 const char *extra = gm_str(gm_obj_get(params, "instruction"));
-                char sysbuf[8192];
+                const char *skills = gm_str(gm_obj_get(params, "skills"));
+                char sysbuf[16384];
                 snprintf(sysbuf, sizeof(sysbuf),
                     "你是 GM Agent，运行在用户 iOS 设备上。"
                     "可以使用 shell 工具读写文件、执行命令、打开应用。"
                     "回答简洁、直接给出结果与命令。%s%s",
                     (extra && *extra) ? "\n\n【用户全局指令】\n" : "",
                     (extra && *extra) ? extra : "");
+                if (skills && *skills) {
+                    size_t used = strlen(sysbuf);
+                    snprintf(sysbuf + used, sizeof(sysbuf) - used,
+                             "\n\n【可用 Skills】\n%s", skills);
+                }
                 job->sys = strdup(sysbuf);
             }
             job->session = g_session;

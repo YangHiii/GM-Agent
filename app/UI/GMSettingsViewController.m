@@ -11,6 +11,7 @@
 #import "GMSkillsViewController.h"
 #import "GMDiagnosticsViewController.h"
 #import "GMBridge.h"
+#import "GMFilesViewController.h"
 
 static NSString *const kCell = @"gs";
 
@@ -86,6 +87,8 @@ static NSString *const kCell = @"gs";
               @"tint": UIColor.systemPurpleColor, @"act": @"protect"},
             @{@"t": @"Skills 与扩展", @"s": [self skillsSummary], @"icon": @"puzzlepiece.fill",
               @"tint": UIColor.systemBlueColor, @"act": @"skills"},
+            @{@"t": @"文件浏览", @"s": @"浏览设备文件", @"icon": @"folder.fill",
+              @"tint": UIColor.systemBlueColor, @"act": @"files"},
             @{@"t": @"存储", @"s": [self storageSummary], @"icon": @"externaldrive.fill",
               @"tint": UIColor.systemGrayColor, @"act": @"storage"},
         ],
@@ -277,6 +280,9 @@ static NSString *const kCell = @"gs";
         [self chooseDisplay];
     } else if ([act isEqualToString:@"agentName"]) {
         [self editAgentName];
+    } else if ([act isEqualToString:@"files"]) {
+        [self.navigationController pushViewController:
+            [[GMFilesViewController alloc] initWithPath:@"/var/mobile"] animated:YES];
     } else if ([act isEqualToString:@"storage"]) {
         [self showStorage];
     } else if ([act isEqualToString:@"about"]) {

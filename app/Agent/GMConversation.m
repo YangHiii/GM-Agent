@@ -34,6 +34,29 @@
 - (NSArray<GMMessage *> *)messages { return _msgs.copy; }
 - (NSString *)currentThreadID { return self.threadID; }
 
+/// 收集 SKILL.md 摘要（最多 8 个，每个 400 字）
+- (NSString *)skillsSummaryForEngine {
+    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *root = [lib stringByAppendingPathComponent:@"Skills"];
+    NSArray *items = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:root error:nil];
+    if (!items.count) return @"";
+    NSMutableString *out = [NSMutableString string];
+    NSInteger n = 0;
+    for (NSString *name in items) {
+        if (n >= 8) break;
+        NSString *md = [[root stringByAppendingPathComponent:name]
+                        stringByAppendingPathComponent:@"SKILL.md"];
+        NSString *body = [NSString stringWithContentsOfFile:md
+                                                   encoding:NSUTF8StringEncoding error:nil];
+        if (!body.length) continue;
+        NSString *brief = body.length > 400 ? [body substringToIndex:400] : body;
+        [out appendFormat:@"- %@: %@\n", name,
+         [brief stringByReplacingOccurrencesOfString:@"\n" withString:@" "]];
+        n++;
+    }
+    return out;
+}
+
 - (void)loadThread:(NSString *)threadID {
     [_msgs removeAllObjects];
     [_toolMessages removeAllObjects];
@@ -160,6 +183,10 @@ static NSString *GMFriendlyError(NSString *raw) {
         if (k2.length) tp[@"apiKey"] = k2;
         NSString *gi = [ud stringForKey:@"gm.globalInstruction"];
         if (gi.length) tp[@"instruction"] = gi;
+
+        /* Skills：扫描目录，把每个 SKILL.md 的前 400 字拼给引擎 */
+        NSString *skills = [self skillsSummaryForEngine];
+        if (skills.length) tp[@"skills"] = skills;
         [strongSelf.bridge call:@"gm/turn/start"
                          params:tp
                           reply:^(id result, NSError *error) {

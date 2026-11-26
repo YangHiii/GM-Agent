@@ -119,5 +119,10 @@ GMHostToolFn gm_host_tool_handler(void);
 /* ---------------- 工具 ---------------- */
 char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, int *code);
 GMPVal *gm_tool_specs(GMArena *a);
+char *gm_tool_memory_remember(const char *args_json);
+char *gm_tool_memory_recall(const char *args_json);
+char *gm_tool_read_file(const char *args_json, int *code);
+char *gm_tool_write_file(const char *args_json, int *code);
+char *gm_tool_list_dir(const char *args_json, int *code);
 
 #endif
