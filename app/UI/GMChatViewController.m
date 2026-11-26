@@ -50,6 +50,8 @@
 @property (nonatomic, strong) UIView *composer;
 @property (nonatomic, strong) NSLayoutConstraint *composerBottom;
 @property (nonatomic) BOOL generating;
+@property (nonatomic) NSTimeInterval lastReload;
+@property (nonatomic) NSInteger lastCount;
 @end
 
 @implementation GMChatViewController
@@ -196,6 +198,12 @@
 #pragma mark - Conversation delegate
 
 - (void)conversationDidChange:(GMConversation *)conversation {
+    /* 节流：流式输出时每 80ms 最多刷一次，避免卡顿 */
+    NSTimeInterval now = [NSDate timeIntervalSinceReferenceDate];
+    if (now - _lastReload < 0.08 && conversation.messages.count == _lastCount) return;
+    _lastReload = now;
+    _lastCount = conversation.messages.count;
+
     GMMessage *last = conversation.messages.lastObject;
     self.generating = last.streaming;
     [self updateSendButton];
@@ -224,7 +232,9 @@
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     GMChatCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell" forIndexPath:indexPath];
-    GMMessage *m = self.conversation.messages[indexPath.row];
+    NSArray<GMMessage *> *list = self.conversation.messages;
+    if (indexPath.row >= list.count) return cell;   /* 越界保护 */
+    GMMessage *m = list[indexPath.row];
     switch (m.role) {
         case GMRoleUser:
             cell.metaLabel.text = @"你";

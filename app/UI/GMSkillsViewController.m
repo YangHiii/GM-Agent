@@ -36,10 +36,21 @@ static NSString *SkillsRoot(void) {
     [fm createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil];
     self.skills = [[fm contentsOfDirectoryAtPath:root error:nil] sortedArrayUsingSelector:@selector(compare:)];
 
-    NSDictionary *mc = [fm contentsOfFile:@"/var/mobile/.gm/mcp.json" encoding:NSUTF8StringEncoding error:nil]
-                       ? [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:@"/var/mobile/.gm/mcp.json"] options:0 error:nil]
-                       : nil;
-    self.mcp = [mc isKindOfClass:[NSDictionary class]] ? mc[@"servers"] : @[];
+    /* MCP 配置：优先 App 容器，其次 /var/mobile */
+    NSString *mcpPath = nil;
+    NSArray *cands = @[@"/var/mobile/.gm/mcp.json",
+                       [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject
+                        stringByAppendingPathComponent:@"mcp.json"]];
+    for (NSString *p in cands) {
+        if ([fm fileExistsAtPath:p]) { mcpPath = p; break; }
+    }
+    id mc = nil;
+    if (mcpPath) {
+        NSData *d = [NSData dataWithContentsOfFile:mcpPath];
+        if (d) mc = [NSJSONSerialization JSONObjectWithData:d options:0 error:nil];
+    }
+    NSArray *servers = [mc isKindOfClass:[NSDictionary class]] ? mc[@"servers"] : nil;
+    self.mcp = [servers isKindOfClass:[NSArray class]] ? servers : @[];
 
     NSString *plugRoot = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject
                           stringByAppendingPathComponent:@"Plugins"];
@@ -88,13 +99,16 @@ static NSString *SkillsRoot(void) {
             c.detailTextLabel.text = @"按工作区分别配置";
         }
     } else if (ip.section == 1) {
+        if (ip.row >= self.skills.count) return c;
         c.textLabel.text = self.skills[ip.row];
         NSString *md = [SkillsRoot() stringByAppendingPathComponent:
                         [self.skills[ip.row] stringByAppendingPathComponent:@"SKILL.md"]];
         c.detailTextLabel.text = [NSFileManager.defaultManager fileExistsAtPath:md] ? @"SKILL.md ✓" : @"缺少 SKILL.md";
     } else if (ip.section == 2) {
+        if (ip.row >= self.mcp.count) return c;
         c.textLabel.text = self.mcp[ip.row];
     } else {
+        if (ip.row >= self.plugins.count) return c;
         c.textLabel.text = self.plugins[ip.row];
         c.accessoryType = UITableViewCellAccessoryNone;
     }
@@ -106,7 +120,7 @@ static NSString *SkillsRoot(void) {
     if (ip.section == 0) {
         [self editInstruction:ip.row == 0];
     } else if (ip.section == 1) {
-        [self showSkill:self.skills[ip.row]];
+        if (ip.row < self.skills.count) [self showSkill:self.skills[ip.row]];
     } else {
         [self alert:@"该扩展暂未启用"];
     }

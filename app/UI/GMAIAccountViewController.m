@@ -33,6 +33,8 @@ static NSString *kcGet(void) {
 }
 
 @interface GMAIAccountViewController ()
+@property (nonatomic, strong) UITableView *tableView;
+@property (nonatomic, strong) UITextField *modelField;
 @property (nonatomic, strong) GMConversation *conversation;
 @property (nonatomic, strong) UITextField *urlField;
 @property (nonatomic, strong) UITextField *keyField;
@@ -356,6 +358,8 @@ static NSString *kcGet(void) {
     c.accessoryType = UITableViewCellAccessoryNone;
     c.detailTextLabel.text = nil;
     c.textLabel.textColor = UIColor.labelColor;
+
+    if (ip.row >= [tv numberOfRowsInSection:ip.section]) return c;
 
     if (ip.section == 0) {
         if (ip.row == 0) {

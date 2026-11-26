@@ -22,20 +22,33 @@ static char g_line[LINE_MAX_LEN];
 static GMArena g_out;          /* 事件输出用（index 1），跨 turn 生命周期 */
 static GMArena g_turn;         /* 回合主 arena */
 static GMProvider g_prov;
-static pthread_mutex_t g_emitLock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t g_turnThread;
 static volatile int g_turnRunning = 0;
 static volatile int g_cancelFlag = 0;
 static GMSession *g_session;
 static int g_turn_counter = 0;
 
+/* 线程安全输出：每次用独立临时 arena，序列化后立刻释放。
+ * （早期版本共享 g_out 且从不重置，长会话会耗尽 8MB 并静默丢输出） */
+static pthread_mutex_t g_outLock = PTHREAD_MUTEX_INITIALIZER;
+
 static void out_write(GMPVal *msg) {
-    GMBuf b;
-    gm_buf_init(&b, &g_out, 4096);
-    gm_write_val(&b, msg);
-    gm_buf_puts(&b, "\n");
-    fwrite(b.p, 1, b.len, stdout);
-    fflush(stdout);
+    if (!msg) return;
+    pthread_mutex_lock(&g_outLock);
+    GMArena tmp;
+    gm_arena_init(&tmp, 64 * 1024);
+    if (tmp.p) {
+        GMBuf b;
+        gm_buf_init(&b, &tmp, 4096);
+        gm_write_val(&b, msg);
+        gm_buf_puts(&b, "\n");
+        if (b.p && b.len) {
+            fwrite(b.p, 1, b.len, stdout);
+            fflush(stdout);
+        }
+        gm_arena_free(&tmp);
+    }
+    pthread_mutex_unlock(&g_outLock);
 }
 
 /* 供 turn.c 调用：切换到输出 arena 后写入。
@@ -43,9 +56,7 @@ static void out_write(GMPVal *msg) {
  * 所以这里把序列化结果立刻刷到 stdout，然后 reset g_out。 */
 void gm_emit(GMArena *arena, GMPVal *msg) {
     (void)arena;
-    pthread_mutex_lock(&g_emitLock);
-    out_write(msg);
-    pthread_mutex_unlock(&g_emitLock);
+    out_write(msg);   /* out_write 内部已加锁 */
 }
 
 int gm_turn_cancelled(void) { return g_cancelFlag; }
@@ -62,14 +73,17 @@ static void *turn_thread(void *arg) {
     GMTurnJob *j = (GMTurnJob *)arg;
     int rc = gm_turn_run(&j->arena, &j->prov, j->session, j->text, j->sys);
     if (rc != 0 && !g_cancelFlag) {
-        GMPVal *r = gm_val_obj(&g_out);
-        GMPVal *p2 = gm_val_obj(&g_out);
-        gm_obj_set(&g_out, p2, "message", gm_val_str(&g_out, "回合失败"));
-        gm_obj_set(&g_out, r, "method", gm_val_str(&g_out, "gm/event/error"));
-        gm_obj_set(&g_out, r, "params", p2);
-        pthread_mutex_lock(&g_emitLock);
-        out_write(r);
-        pthread_mutex_unlock(&g_emitLock);
+        GMArena tmp;
+        gm_arena_init(&tmp, 64 * 1024);
+        if (tmp.p) {
+            GMPVal *r = gm_val_obj(&tmp);
+            GMPVal *p2 = gm_val_obj(&tmp);
+            gm_obj_set(&tmp, p2, "message", gm_val_str(&tmp, "回合失败"));
+            gm_obj_set(&tmp, r, "method", gm_val_str(&tmp, "gm/event/error"));
+            gm_obj_set(&tmp, r, "params", p2);
+            out_write(r);
+            gm_arena_free(&tmp);
+        }
     }
     gm_arena_free(&j->arena);
     free(j->text);
@@ -105,7 +119,6 @@ static void reply(GMArena *a, const GMPVal *id, GMPVal *result, const char *err_
         gm_obj_set(a, m, "result", result ? result : gm_val_obj(a));
     }
     out_write(m);
-    gm_arena_reset(&g_out);
 }
 
 static void load_config(void) {
@@ -193,28 +206,32 @@ int gm_engine_main(int argc, char **argv) {
             /* 先回执，再阻塞安装（进度用事件推送） */
             reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
 
-            GMPVal *ev = gm_val_obj(&g_out);
-            GMPVal *pp = gm_val_obj(&g_out);
-            gm_obj_set(&g_out, pp, "name", gm_val_str(&g_out, name ? name : ""));
-            gm_obj_set(&g_out, pp, "phase", gm_val_str(&g_out, "start"));
-            gm_obj_set(&g_out, pp, "dest", gm_val_str(&g_out, dest));
-            gm_obj_set(&g_out, ev, "method", gm_val_str(&g_out, "gm/event/runtime"));
-            gm_obj_set(&g_out, ev, "params", pp);
+            GMArena ra;
+            gm_arena_init(&ra, 64 * 1024);
+            GMPVal *ev = gm_val_obj(&ra);
+            GMPVal *pp = gm_val_obj(&ra);
+            gm_obj_set(&ra, pp, "name", gm_val_str(&ra, name ? name : ""));
+            gm_obj_set(&ra, pp, "phase", gm_val_str(&ra, "start"));
+            gm_obj_set(&ra, pp, "dest", gm_val_str(&ra, dest));
+            gm_obj_set(&ra, ev, "method", gm_val_str(&ra, "gm/event/runtime"));
+            gm_obj_set(&ra, ev, "params", pp);
             out_write(ev);
-            gm_arena_reset(&g_out);
+            gm_arena_free(&ra);
 
             char *err = NULL;
             int rc = gm_runtime_install(url, sha, dest, NULL, NULL, &err);
-            GMPVal *res = gm_val_obj(&g_out);
-            GMPVal *rp = gm_val_obj(&g_out);
-            gm_obj_set(&g_out, rp, "name", gm_val_str(&g_out, name ? name : ""));
-            gm_obj_set(&g_out, rp, "phase", gm_val_str(&g_out, rc == 0 ? "done" : "error"));
-            gm_obj_set(&g_out, rp, "dest", gm_val_str(&g_out, dest));
-            if (err) gm_obj_set(&g_out, rp, "message", gm_val_str(&g_out, err));
-            gm_obj_set(&g_out, res, "method", gm_val_str(&g_out, "gm/event/runtime"));
-            gm_obj_set(&g_out, res, "params", rp);
+            GMArena rb;
+            gm_arena_init(&rb, 64 * 1024);
+            GMPVal *res = gm_val_obj(&rb);
+            GMPVal *rp = gm_val_obj(&rb);
+            gm_obj_set(&rb, rp, "name", gm_val_str(&rb, name ? name : ""));
+            gm_obj_set(&rb, rp, "phase", gm_val_str(&rb, rc == 0 ? "done" : "error"));
+            gm_obj_set(&rb, rp, "dest", gm_val_str(&rb, dest));
+            if (err) gm_obj_set(&rb, rp, "message", gm_val_str(&rb, err));
+            gm_obj_set(&rb, res, "method", gm_val_str(&rb, "gm/event/runtime"));
+            gm_obj_set(&rb, res, "params", rp);
             out_write(res);
-            gm_arena_reset(&g_out);
+            gm_arena_free(&rb);
             free(err);
         } else if (method && strcmp(method, "gm/tools/list") == 0) {
             reply(&g_turn, id, gm_tool_specs(&g_turn), NULL);

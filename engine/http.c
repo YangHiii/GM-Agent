@@ -39,7 +39,6 @@ static SSL_CTX *ctx_get(void) {
     if (env && *env) loaded = SSL_CTX_load_verify_locations(g_ctx, env, NULL) == 1;
     if (!loaded) {
         const char *names[] = { "cacert.pem", "cacert.cer", NULL };
-        extern char **environ;
         /* 通过可执行路径推断 bundle 目录 */
         char exe[1024];
         ssize_t n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
