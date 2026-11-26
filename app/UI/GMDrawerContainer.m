@@ -72,7 +72,7 @@ static const CGFloat kCorner = 24.0;
 @interface GMSidebarViewController () <UITableViewDataSource, UITableViewDelegate>
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UIButton *folderButton;
-@property (nonatomic, strong) UIButton *newChatButton;
+@property (nonatomic, strong) UIButton *composeButton;
 @property (nonatomic, strong) UILabel *sectionLabel;
 @property (nonatomic, strong) UITableView *table;
 @property (nonatomic, strong) NSArray<GMSessionMeta *> *sessions;
@@ -123,15 +123,15 @@ static const CGFloat kCorner = 24.0;
     [_folderButton addTarget:self action:@selector(newWorkspace) forControlEvents:UIControlEventTouchUpInside];
     [v addSubview:_folderButton];
 
-    _newChatButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    _newChatButton.translatesAutoresizingMaskIntoConstraints = NO;
-    _newChatButton.backgroundColor = [UIColor colorWithRed:0.16 green:0.45 blue:0.98 alpha:1.0];
-    _newChatButton.layer.cornerRadius = 12;
-    [_newChatButton setTitle:@"+  新对话" forState:UIControlStateNormal];
-    [_newChatButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-    _newChatButton.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
-    [_newChatButton addTarget:self action:@selector(newChat) forControlEvents:UIControlEventTouchUpInside];
-    [v addSubview:_newChatButton];
+    _composeButton = [UIButton buttonWithType:UIButtonTypeSystem];
+    _composeButton.translatesAutoresizingMaskIntoConstraints = NO;
+    _composeButton.backgroundColor = [UIColor colorWithRed:0.16 green:0.45 blue:0.98 alpha:1.0];
+    _composeButton.layer.cornerRadius = 12;
+    [_composeButton setTitle:@"+  新对话" forState:UIControlStateNormal];
+    [_composeButton setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    _composeButton.titleLabel.font = [UIFont systemFontOfSize:17 weight:UIFontWeightSemibold];
+    [_composeButton addTarget:self action:@selector(newChat) forControlEvents:UIControlEventTouchUpInside];
+    [v addSubview:_composeButton];
 
     /* 分组标题 */
     _sectionLabel = [UILabel new];
@@ -242,10 +242,10 @@ static const CGFloat kCorner = 24.0;
         [_folderButton.widthAnchor constraintEqualToConstant:56],
         [_folderButton.heightAnchor constraintEqualToConstant:56],
 
-        [_newChatButton.leadingAnchor constraintEqualToAnchor:_folderButton.trailingAnchor constant:8],
-        [_newChatButton.trailingAnchor constraintEqualToAnchor:v.trailingAnchor constant:-16],
-        [_newChatButton.centerYAnchor constraintEqualToAnchor:_folderButton.centerYAnchor],
-        [_newChatButton.heightAnchor constraintEqualToConstant:56],
+        [_composeButton.leadingAnchor constraintEqualToAnchor:_folderButton.trailingAnchor constant:8],
+        [_composeButton.trailingAnchor constraintEqualToAnchor:v.trailingAnchor constant:-16],
+        [_composeButton.centerYAnchor constraintEqualToAnchor:_folderButton.centerYAnchor],
+        [_composeButton.heightAnchor constraintEqualToConstant:56],
 
         [_sectionLabel.leadingAnchor constraintEqualToAnchor:v.leadingAnchor constant:20],
         [_sectionLabel.topAnchor constraintEqualToAnchor:_folderButton.bottomAnchor constant:16],

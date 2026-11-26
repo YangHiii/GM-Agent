@@ -63,7 +63,7 @@ static NSString *kcGet(NSString *account) {
 
 - (NSMutableArray<GMProviderRecord *> *)_load {
     NSArray *raw = [[NSUserDefaults standardUserDefaults] arrayForKey:kListKey];
-    NSMutableArray *arr = [NSMutableArray array];
+    NSMutableArray<GMProviderRecord *> *arr = [NSMutableArray array];
     for (NSDictionary *d in raw) {
         GMProviderRecord *r = [GMProviderRecord fromDictionary:d];
         if (r) [arr addObject:r];
@@ -72,7 +72,7 @@ static NSString *kcGet(NSString *account) {
 }
 
 - (void)_save:(NSArray<GMProviderRecord *> *)list {
-    NSMutableArray *raw = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *raw = [NSMutableArray array];
     for (GMProviderRecord *r in list) [raw addObject:[r dictionary]];
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     [d setObject:raw forKey:kListKey];
@@ -87,7 +87,7 @@ static NSString *kcGet(NSString *account) {
 }
 
 - (GMProviderRecord *)addProviderNamed:(NSString *)name {
-    NSMutableArray *list = [self _load];
+    NSMutableArray<GMProviderRecord *> *list = [self _load];
     GMProviderRecord *r = [GMProviderRecord new];
     r.ident = [[NSUUID UUID] UUIDString];
     r.name = name ?: @"新供应商";
@@ -103,7 +103,7 @@ static NSString *kcGet(NSString *account) {
 
 - (void)updateProvider:(GMProviderRecord *)rec {
     if (!rec.ident.length) return;
-    NSMutableArray *list = [self _load];
+    NSMutableArray<GMProviderRecord *> *list = [self _load];
     for (NSUInteger i = 0; i < list.count; i++) {
         if ([list[i].ident isEqualToString:rec.ident]) {
             list[i] = rec;
@@ -116,20 +116,23 @@ static NSString *kcGet(NSString *account) {
 }
 
 - (void)removeProvider:(NSString *)ident {
-    NSMutableArray *list = [self _load];
+    NSMutableArray<GMProviderRecord *> *list = [self _load];
     GMProviderRecord *removed = nil;
     for (GMProviderRecord *r in list) if ([r.ident isEqualToString:ident]) { removed = r; break; }
     [list filterUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(GMProviderRecord *r, NSDictionary *b) {
         return ![r.ident isEqualToString:ident];
     }]];
     kcSet(ident, @"");
-    if (removed.active && list.count) list.firstObject.active = YES;
+    if (removed.active && list.count) {
+        GMProviderRecord *first = list.firstObject;
+        first.active = YES;
+    }
     [self _save:list];
     [self applyActiveToDefaults];
 }
 
 - (void)activateProvider:(NSString *)ident {
-    NSMutableArray *list = [self _load];
+    NSMutableArray<GMProviderRecord *> *list = [self _load];
     for (GMProviderRecord *r in list) r.active = [r.ident isEqualToString:ident];
     [self _save:list];
     [self applyActiveToDefaults];
