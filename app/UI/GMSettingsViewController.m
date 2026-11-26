@@ -2,6 +2,7 @@
 // 交互：填地址 → 自动拉 /models → 点"模型"选 → 填 Key → 测试 → 保存
 #import "GMSettingsViewController.h"
 #import <Security/Security.h>
+#import "GMLog.h"
 
 static NSString *const kKCService = @"app.gm.agent";
 static NSString *const kKCAccount = @"provider.apikey";
@@ -324,10 +325,10 @@ static NSString *kcGet(void) {
 
 #pragma mark - Table
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 4; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 5; }
 
 - (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
-    return @[@"连接", @"模型", @"状态", @"操作"][s];
+    return @[@"连接", @"模型", @"状态", @"操作", @"诊断"][s];
 }
 
 - (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)s {
@@ -338,6 +339,7 @@ static NSString *kcGet(void) {
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
     if (s == 0) return 2;      // 地址 + Key（都在顶部，键盘挡不到）
+    if (s == 4) return 2;      // 查看日志 / 复制路径
     return 1;
 }
 
@@ -376,10 +378,15 @@ static NSString *kcGet(void) {
         c.textLabel.textColor = [self.statusText hasPrefix:@"已获取"] ? UIColor.systemGreenColor :
                                 ([self.statusText hasPrefix:@"获取失败"] || [self.statusText hasPrefix:@"未获取"]
                                  ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor);
-    } else {
+    } else if (ip.section == 3) {
         c.textLabel.text = @"测试连接";
         c.textLabel.textColor = UIColor.systemBlueColor;
         c.selectionStyle = UITableViewCellSelectionStyleDefault;
+    } else {
+        c.textLabel.text = ip.row == 0 ? @"查看启动日志" : @"复制日志路径";
+        c.textLabel.textColor = UIColor.systemBlueColor;
+        c.selectionStyle = UITableViewCellSelectionStyleDefault;
+        c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     }
     return c;
 }
@@ -407,6 +414,13 @@ static NSString *kcGet(void) {
     } else if (ip.section == 3) {
         [self.view endEditing:YES];
         [self testConnection];
+    } else if (ip.section == 4) {
+        if (ip.row == 0) {
+            [self showLog];
+        } else {
+            [UIPasteboard generalPasteboard].string = GMLogPath();
+            [self alert:[NSString stringWithFormat:@"路径已复制：\n%@", GMLogPath()]];
+        }
     }
 }
 
@@ -479,6 +493,22 @@ static NSString *kcGet(void) {
     self.conversation.model = self.model;
     [self.conversation pushConfigToEngine];
     [self.navigationController popViewControllerAnimated:YES];
+}
+
+- (void)showLog {
+    NSString *content = [NSString stringWithContentsOfFile:GMLogPath()
+                                                 encoding:NSUTF8StringEncoding error:nil];
+    if (!content.length) content = @"(日志为空或文件不存在)";
+    UIViewController *vc = [UIViewController new];
+    vc.title = @"启动日志";
+    vc.view.backgroundColor = UIColor.systemBackgroundColor;
+    UITextView *tv = [[UITextView alloc] initWithFrame:vc.view.bounds];
+    tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    tv.editable = NO;
+    tv.text = content;
+    tv.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
+    [vc.view addSubview:tv];
+    [self.navigationController pushViewController:vc animated:YES];
 }
 
 - (void)alert:(NSString *)msg {

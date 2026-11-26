@@ -66,6 +66,9 @@
     if (!trimmed.length) return;
     [self _push:[GMMessage userText:trimmed]];
 
+    /* 每轮都重推配置：避免"设置没生效"这类问题 */
+    [self configureEngineIfNeeded];
+
     NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
     attrs[@"model"] = self.model ?: @"";
     attrs[@"reasoning_effort"] = self.effort ?: @"medium";
@@ -78,8 +81,19 @@
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         strongSelf.threadID = tid;
+        NSUserDefaults *ud = [NSUserDefaults standardUserDefaults];
+        NSMutableDictionary *tp = [NSMutableDictionary dictionary];
+        tp[@"threadId"] = tid;
+        tp[@"input"] = @[input];
+        tp[@"attributes"] = attrs;
+        tp[@"text"] = trimmed;
+        tp[@"model"] = self.model ?: @"";
+        NSString *b2 = [ud stringForKey:@"gm.baseURL"];
+        NSString *k2 = [ud stringForKey:@"gm.apiKey"];
+        if (b2.length) tp[@"baseURL"] = b2;
+        if (k2.length) tp[@"apiKey"] = k2;
         [strongSelf.bridge call:@"gm/turn/start"
-                         params:@{@"threadId": tid, @"input": @[input], @"attributes": attrs}
+                         params:tp
                           reply:^(id result, NSError *error) {
             if (error) {
                 [strongSelf _fail:error.localizedDescription];

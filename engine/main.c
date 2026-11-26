@@ -183,6 +183,15 @@ int gm_engine_main(int argc, char **argv) {
             reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
         } else if (method && strcmp(method, "gm/turn/start") == 0) {
             const char *text = gm_str(gm_obj_get(params, "text"));
+            /* 允许随 turn 一起覆盖模型（保证配置一定生效） */
+            const char *tm = gm_str(gm_obj_get(params, "model"));
+            const char *tk = gm_str(gm_obj_get(params, "apiKey"));
+            const char *tb = gm_str(gm_obj_get(params, "baseURL"));
+            if (tb && *tb) snprintf(g_prov.base_url, sizeof(g_prov.base_url), "%s", tb);
+            if (tk && *tk) snprintf(g_prov.api_key, sizeof(g_prov.api_key), "%s", tk);
+            if (tm && *tm) snprintf(g_prov.model, sizeof(g_prov.model), "%s", tm);
+            fprintf(stderr, "[gm] turn model=%s key=%s base=%s\n",
+                    g_prov.model, g_prov.api_key[0] ? "(set)" : "(empty)", g_prov.base_url);
             if (!g_session) {
                 char tid[64];
                 snprintf(tid, sizeof(tid), "gm-%lld-%d", (long long)time(NULL), ++g_turn_counter);
