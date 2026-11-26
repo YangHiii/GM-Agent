@@ -19,6 +19,18 @@ static NSString *FormatSize(long long bytes) {
     return [NSString stringWithFormat:@"%.1f MB", mb];
 }
 
+/* 目录里至少有一个真实文件才算安装完成（排除只剩 .gmdownload 的中间状态） */
+static BOOL DirectoryIsInstalled(NSString *path) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    BOOL isDir = NO;
+    if (![fm fileExistsAtPath:path isDirectory:&isDir] || !isDir) return NO;
+    for (NSString *it in [fm contentsOfDirectoryAtPath:path error:nil]) {
+        if ([it hasSuffix:@".gmdownload"]) continue;
+        return YES;
+    }
+    return NO;
+}
+
 /// 递归计算目录占用
 static long long DirectorySize(NSString *path) {
     NSFileManager *fm = NSFileManager.defaultManager;
@@ -220,7 +232,9 @@ static UIColor *TintColor(NSString *name) {
                 NSString *group = v[@"group"] ?: @"tools";
                 BOOL isCore = [group isEqualToString:@"core"] || [group isEqualToString:@"compiler"];
                 NSString *dir = [RuntimeRoot() stringByAppendingPathComponent:k];
-                BOOL installed = [[NSFileManager defaultManager] fileExistsAtPath:dir];
+                BOOL installingThis = (self.installing.length > 0 &&
+                                       [self.installing isEqualToString:(v[@"display_name"] ?: k)]);
+                BOOL installed = DirectoryIsInstalled(dir) && !installingThis;
 
                 NSString *title = v[@"display_name"] ?: k;
                 long long size = [v[@"unpacked_size"] longLongValue];
