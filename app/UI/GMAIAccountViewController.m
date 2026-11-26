@@ -518,10 +518,12 @@ static NSString *kcGet(void) {
             if (u.host.length) prov.name = u.host;
         }
         prov.active = YES;
-        prov.modelsJSON = self.models.count ? ({
+        if (self.models.count) {
             NSData *dd = [NSJSONSerialization dataWithJSONObject:self.models options:0 error:nil];
-            [[NSString alloc] initWithData:dd encoding:NSUTF8StringEncoding];
-        }) : @"[]";
+            prov.modelsJSON = dd ? [[NSString alloc] initWithData:dd encoding:NSUTF8StringEncoding] : @"[]";
+        } else {
+            prov.modelsJSON = @"[]";
+        }
         [[GMProviderStore shared] updateProvider:prov];
         [[GMProviderStore shared] activateProvider:prov.ident];
     } else {

@@ -55,12 +55,20 @@ workflows:
           SDK=$(xcrun --sdk iphoneos --show-sdk-path)
           APP=build/GMAgent.app
           mkdir -p "$APP"
+          set +e
           clang -target arm64-apple-ios15.0 -isysroot "$SDK" -O2 -fobjc-arc -fblocks \
             -Iapp -Iapp/Core -Iapp/UI -Iapp/Agent \
             app/main.m app/GMAppDelegate.m app/GMLog.m app/Core/*.m app/UI/*.m app/Agent/*.m \
             -framework UIKit -framework Foundation -framework CoreGraphics \
             -framework QuartzCore -framework WebKit -framework Security \
-            -o "$APP/GMAgent"
+            -o "$APP/GMAgent" 2>&1 | tee "$CM_BUILD_DIR/compile-log.txt"
+          RC=${PIPESTATUS[0]}
+          set -e
+          if [ $RC -ne 0 ]; then
+            echo "!! 编译失败，最后 40 行："
+            tail -40 "$CM_BUILD_DIR/compile-log.txt"
+            exit $RC
+          fi
           test -s "$APP/GMAgent"
 
       - name: 组装 Bundle
@@ -137,3 +145,4 @@ workflows:
 
     artifacts:
       - build/GMAgent.ipa
+      - compile-log.txt
