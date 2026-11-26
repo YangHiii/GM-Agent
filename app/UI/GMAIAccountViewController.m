@@ -34,7 +34,6 @@ static NSString *kcGet(void) {
 }
 
 @interface GMAIAccountViewController ()
-@property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) UITextField *modelField;
 @property (nonatomic, strong) GMConversation *conversation;
 @property (nonatomic, strong) UITextField *urlField;
