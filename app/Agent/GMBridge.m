@@ -93,6 +93,12 @@ static void *engineThread(void *ctx) {
     [[NSFileManager defaultManager] createDirectoryAtPath:rtDir
                               withIntermediateDirectories:YES attributes:nil error:nil];
     setenv("GM_RUNTIME_DIR", rtDir.fileSystemRepresentation, 1);
+    NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *sessDir = [docs stringByAppendingPathComponent:@"sessions"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:sessDir
+                              withIntermediateDirectories:YES attributes:nil error:nil];
+    setenv("GM_SESSION_DIR", sessDir.fileSystemRepresentation, 1);
+    GMLog(@"会话目录: %@", sessDir);
     GMLog(@"运行时目录: %@", rtDir);
     NSString *ca = [[NSBundle mainBundle] pathForResource:@"cacert" ofType:@"pem"];
     if (ca) setenv("GM_CA_FILE", ca.fileSystemRepresentation, 1);

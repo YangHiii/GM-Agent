@@ -21,10 +21,15 @@ GMSession *gm_session_new(const char *thread_id) {
     GMSession *s = calloc(1, sizeof(GMSession));
     if (!s) return NULL;
     snprintf(s->id, sizeof(s->id), "%.40s", thread_id ? thread_id : "default");
-    const char *home = getenv("HOME");
-    if (!home) home = "/tmp";
     char dir[512];
-    snprintf(dir, sizeof(dir), "%.480s/.gm/sessions", home);
+    const char *envDir = getenv("GM_SESSION_DIR");
+    if (envDir && *envDir) {
+        snprintf(dir, sizeof(dir), "%.480s", envDir);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home) home = "/var/mobile";
+        snprintf(dir, sizeof(dir), "%.480s/.gm/sessions", home);
+    }
     mkdirs(dir);
     snprintf(s->path, sizeof(s->path), "%.480s/%.40s.jsonl", dir, s->id);
     /* 立即创建空文件，便于后续 append 与 history 读取 */
@@ -36,14 +41,25 @@ GMSession *gm_session_new(const char *thread_id) {
 void gm_session_free(GMSession *s) { free(s); }
 const char *gm_session_id(const GMSession *s) { return s ? s->id : ""; }
 
-/* 读取 JSONL 历史，返回 {"role":..,"content":..} 数组（调用方管理 arena） */
+/* 统一计算会话 JSONL 路径 */
+static void gm_session_path(const char *thread_id, char *out, size_t cap) {
+    char dir[512];
+    const char *envDir = getenv("GM_SESSION_DIR");
+    if (envDir && *envDir) {
+        snprintf(dir, sizeof(dir), "%.480s", envDir);
+    } else {
+        const char *home = getenv("HOME");
+        if (!home) home = "/var/mobile";
+        snprintf(dir, sizeof(dir), "%.480s/.gm/sessions", home);
+    }
+    snprintf(out, cap, "%.460s/%.40s.jsonl", dir, thread_id ? thread_id : "default");
+}
+
 GMPVal *gm_session_load_history(const char *thread_id, GMArena *a) {
     GMPVal *arr = gm_val_arr(a);
     if (!thread_id || !*thread_id) return arr;
-    const char *home = getenv("HOME");
-    if (!home) home = "/var/mobile";
     char path[600];
-    snprintf(path, sizeof(path), "%.480s/.gm/sessions/%.40s.jsonl", home, thread_id);
+    gm_session_path(thread_id, path, sizeof(path));
     FILE *f = fopen(path, "r");
     if (!f) return arr;
     char line[8192];
@@ -60,10 +76,8 @@ GMPVal *gm_session_load_history(const char *thread_id, GMArena *a) {
 
 int gm_session_exists(const char *thread_id) {
     if (!thread_id || !*thread_id) return 0;
-    const char *home = getenv("HOME");
-    if (!home) home = "/var/mobile";
     char path[600];
-    snprintf(path, sizeof(path), "%.480s/.gm/sessions/%.40s.jsonl", home, thread_id);
+    gm_session_path(thread_id, path, sizeof(path));
     return access(path, R_OK) == 0;
 }
 

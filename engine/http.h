@@ -4,7 +4,8 @@
 
 #include <stddef.h>
 
-typedef void (*GMHttpBodyFn)(void *ctx, const char *data, size_t len);
+/* 返回 0 继续接收；返回 1 客户端主动结束（如收到 SSE [DONE]） */
+typedef int (*GMHttpBodyFn)(void *ctx, const char *data, size_t len);
 
 typedef struct GMHttpReq {
     const char *method;        /* "GET" / "POST" */

@@ -272,7 +272,13 @@ int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body
                 } else if (state == 1) {
                     size_t avail = cb_len - pos;
                     size_t take = remain < avail ? remain : avail;
-                    if (take && on_body) on_body(ctx, cbuf + pos, take);
+                    if (take && on_body && on_body(ctx, cbuf + pos, take) != 0) {
+                        free(cbuf);
+                        free(buf);
+                        if (ssl) { SSL_shutdown(ssl); SSL_free(ssl); }
+                        close(fd);
+                        return 0;
+                    }
                     pos += take;
                     remain -= take;
                     if (remain == 0) state = 2;
@@ -296,11 +302,16 @@ int gm_http_perform(const GMHttpReq *req, GMHttpResp *resp, GMHttpBodyFn on_body
         }
         free(cbuf);
     } else {
-        if (body_avail && on_body) on_body(ctx, buf + consumed, body_avail);
+        if (body_avail && on_body && on_body(ctx, buf + consumed, body_avail) != 0) {
+            if (ssl) { SSL_shutdown(ssl); SSL_free(ssl); ssl = NULL; }
+            close(fd);
+            free(buf);
+            return 0;
+        }
         for (;;) {
             int r = read_some(ssl, fd, buf, 65536 - 1);
             if (r <= 0) break;
-            if (on_body) on_body(ctx, buf, (size_t)r);
+            if (on_body && on_body(ctx, buf, (size_t)r) != 0) break;   /* 客户端要求结束 */
         }
     }
 

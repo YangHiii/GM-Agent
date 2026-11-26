@@ -6,6 +6,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <poll.h>
+#include <dirent.h>
 #include <time.h>
 
 #define TOOL_OUT_CAP (512 * 1024)
@@ -82,14 +83,37 @@ char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, in
         setenv("GM_AGENT", "1", 1);
         /* 补上常见 PATH，越狱环境命令多在 /var/jb/usr/bin */
         const char *oldpath = getenv("PATH");
-        char newpath[2048];
         const char *bundle = getenv("GM_BUNDLE_DIR");
+        const char *rtRoot = getenv("GM_RUNTIME_DIR");
+
+        /* 动态收集已安装运行时的可执行目录（Runtimes/<name>/bin） */
+        static char rtPaths[2048];
+        rtPaths[0] = 0;
+        if (rtRoot && *rtRoot) {
+            DIR *d = opendir(rtRoot);
+            if (d) {
+                struct dirent *e;
+                size_t off = 0;
+                while ((e = readdir(d)) != NULL && off < sizeof(rtPaths) - 512) {
+                    if (e->d_name[0] == '.') continue;
+                    int n = snprintf(rtPaths + off, sizeof(rtPaths) - off,
+                                     "%s/%s/bin:", rtRoot, e->d_name);
+                    if (n > 0) off += (size_t)n;
+                }
+                closedir(d);
+            }
+        }
+
+        char newpath[4096];
         snprintf(newpath, sizeof(newpath),
-                 "%s/Helpers:%s/Helpers/TheosCompat:"
-                 "/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:"
-                 "/usr/bin:/bin:/usr/sbin:/sbin:%s",
-                 bundle ? bundle : "/tmp", bundle ? bundle : "/tmp",
-                 oldpath ? oldpath : "");
+                 "%s/Helpers%s%s"
+                 "/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin"
+                 ":/usr/bin:/bin:/usr/sbin:/sbin"
+                 "%s%s",
+                 bundle ? bundle : "/tmp",
+                 rtPaths[0] ? ":" : "", rtPaths,
+                 (oldpath && *oldpath) ? ":" : "",
+                 (oldpath && *oldpath) ? oldpath : "");
         setenv("PATH", newpath, 1);
 
         const char *sh = gm_find_shell();

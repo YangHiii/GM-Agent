@@ -282,12 +282,13 @@ typedef struct {
     void *ctx;
 } DLCtx;
 
-static void dl_body(void *ctx, const char *data, size_t len) {
+static int dl_body(void *ctx, const char *data, size_t len) {
     DLCtx *d = (DLCtx *)ctx;
-    if (!d->f) return;
+    if (!d->f) return 0;
     fwrite(data, 1, len, d->f);
     d->done += len;
     if (d->cb) d->cb(d->done, d->total, d->ctx);
+    return 0;
 }
 
 int gm_download_to_file(const char *url, const char *path,

@@ -168,6 +168,7 @@
     NSString *text = self.input.text;
     if (!text.length) return;
     self.input.text = @"";
+    [self.input resignFirstResponder];   /* 发送后收起键盘 */
     [self.conversation sendUserText:text];
 }
 

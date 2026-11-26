@@ -29,7 +29,7 @@ typedef struct {
     char error_msg[512];
 } StreamCtx;
 
-static void http_body_cb(void *ctx, const char *data, size_t len) {
+static int http_body_cb(void *ctx, const char *data, size_t len) {
     StreamCtx *c = (StreamCtx *)ctx;
     int status = c->resp ? gm_http_resp_status(c->resp) : 200;
     if (status >= 400) {
@@ -41,9 +41,10 @@ static void http_body_cb(void *ctx, const char *data, size_t len) {
             c->errlen += n;
             c->errbuf[c->errlen] = 0;
         }
-        return;
+        return 0;
     }
     gm_sse_feed((GMSseParser *)c->sse, data, len);
+    return c->done ? 1 : 0;   /* 收到 [DONE] 立刻结束，不等待连接关闭 */
 }
 
 static void sse_data(void *ctx, const char *data, size_t len) {

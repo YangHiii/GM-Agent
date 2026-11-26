@@ -99,6 +99,29 @@ static NSString *const kCell = @"gs";
     ];
 }
 
+/// 圆角底色 + 白色 SF Symbol
+- (UIImage *)badgeImage:(NSString *)symbol tint:(UIColor *)tint size:(CGFloat)size {
+    UIImageSymbolConfiguration *sym = [UIImageSymbolConfiguration configurationWithPointSize:size * 0.58
+                                                                                     weight:UIImageSymbolWeightSemibold];
+    UIImage *glyph = [[UIImage systemImageNamed:symbol] imageWithConfiguration:sym];
+    glyph = [glyph imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate];
+
+    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat defaultFormat];
+    fmt.opaque = NO;
+    fmt.scale = [UIScreen mainScreen].scale;
+    UIGraphicsImageRenderer *r = [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(size, size) format:fmt];
+    return [r imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
+        UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:CGRectMake(0, 0, size, size)
+                                                           cornerRadius:size * 0.25];
+        [tint setFill];
+        [path fill];
+        CGSize gs = glyph.size;
+        CGRect gr = CGRectMake((size - gs.width) / 2, (size - gs.height) / 2, gs.width, gs.height);
+        [[UIColor whiteColor] setFill];
+        [glyph drawInRect:gr blendMode:kCGBlendModeNormal alpha:1.0];
+    }];
+}
+
 - (NSString *)subagentSummary {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     if ([[d stringForKey:@"gm.subagent.modelMode"] ?: @"follow" isEqualToString:@"follow"]) return @"跟随主代理";
@@ -160,16 +183,12 @@ static NSString *const kCell = @"gs";
     cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
     cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:12];
 
-    UIImageSymbolConfiguration *sym = [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightSemibold];
-    cfg.image = [[UIImage systemImageNamed:row[@"icon"]] imageWithConfiguration:sym];
-    cfg.imageProperties.tintColor = UIColor.whiteColor;
+    // 生成带圆角底色的图标（contentConfiguration 会覆盖 imageView 背景，必须画进图片里）
+    UIImage *icon = [self badgeImage:row[@"icon"] tint:row[@"tint"] size:28];
+    cfg.image = icon;
     cfg.imageProperties.reservedLayoutSize = CGSizeMake(28, 28);
+    cfg.imageProperties.maximumSize = CGSizeMake(28, 28);
     c.contentConfiguration = cfg;
-
-    // 左侧彩色图标块
-    c.imageView.backgroundColor = row[@"tint"];
-    c.imageView.layer.cornerRadius = 7;
-    c.imageView.layer.masksToBounds = YES;
     c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
     return c;
 }
