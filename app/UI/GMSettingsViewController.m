@@ -1,45 +1,16 @@
-// GM Agent · 设置页
-// 交互：填地址 → 自动拉 /models → 点"模型"选 → 填 Key → 测试 → 保存
+// GM Agent · 设置主页面
+// 分组：AI 与服务 / 账号与集成 / 聊天与外观 / 能力与工具 / 帮助与诊断
 #import "GMSettingsViewController.h"
-#import <Security/Security.h>
+#import "GMAIAccountViewController.h"
+#import "GMDevViewController.h"
+#import "GMSessionStore.h"
 #import "GMLog.h"
 
-static NSString *const kKCService = @"app.gm.agent";
-static NSString *const kKCAccount = @"provider.apikey";
-
-static void kcSet(NSString *v) {
-    NSDictionary *q = @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
-                        (__bridge id)kSecAttrService: kKCService,
-                        (__bridge id)kSecAttrAccount: kKCAccount};
-    SecItemDelete((__bridge CFDictionaryRef)q);
-    if (!v.length) return;
-    NSMutableDictionary *a = [q mutableCopy];
-    a[(__bridge id)kSecValueData] = [v dataUsingEncoding:NSUTF8StringEncoding];
-    a[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlock;
-    SecItemAdd((__bridge CFDictionaryRef)a, NULL);
-}
-static NSString *kcGet(void) {
-    NSDictionary *q = @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
-                        (__bridge id)kSecAttrService: kKCService,
-                        (__bridge id)kSecAttrAccount: kKCAccount,
-                        (__bridge id)kSecReturnData: @YES,
-                        (__bridge id)kSecMatchLimit: (__bridge id)kSecMatchLimitOne};
-    CFTypeRef out = NULL;
-    if (SecItemCopyMatching((__bridge CFDictionaryRef)q, &out) == errSecSuccess && out) {
-        NSData *d = (__bridge_transfer NSData *)out;
-        return [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
-    }
-    return @"";
-}
+static NSString *const kCell = @"gs";
 
 @interface GMSettingsViewController ()
 @property (nonatomic, strong) GMConversation *conversation;
-@property (nonatomic, strong) UITextField *urlField;
-@property (nonatomic, strong) UITextField *keyField;
-@property (nonatomic, copy) NSString *model;
-@property (nonatomic, strong) NSArray<NSString *> *models;
-@property (nonatomic) BOOL loadingModels;
-@property (nonatomic, copy) NSString *statusText;
+@property (nonatomic, strong) NSArray<NSArray<NSDictionary *> *> *groups;
 @end
 
 @implementation GMSettingsViewController
@@ -53,251 +24,181 @@ static NSString *kcGet(void) {
     [super viewDidLoad];
     self.title = @"设置";
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone
-                                        target:self action:@selector(save)];
-
-    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    NSString *saved = [d stringForKey:@"gm.baseURL"];
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.tableView.dataSource = self;
     self.tableView.delegate = self;
-    self.tableView.keyboardDismissMode = UIScrollViewKeyboardDismissModeOnDrag;
     [self.view addSubview:self.tableView];
 
-    self.urlField = [self makeField:@"https://api.deepseek.com/v1" secure:NO];
-    self.urlField.text = saved ?: @"";
-    self.urlField.keyboardType = UIKeyboardTypeURL;
-    [self.urlField addTarget:self action:@selector(urlChanged) forControlEvents:UIControlEventEditingDidEnd];
+    [self buildGroups];
+}
 
-    self.keyField = [self makeField:@"sk-…" secure:YES];
-    self.keyField.text = kcGet();
-    // 键盘上浮板：粘贴按钮，方便直接贴 key
-    UIToolbar *bar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
-    bar.items = @[
-        [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFlexibleSpace target:nil action:nil],
-        [[UIBarButtonItem alloc] initWithTitle:@"粘贴" style:UIBarButtonItemStylePlain
-                                        target:self action:@selector(pasteKey)],
-        [[UIBarButtonItem alloc] initWithTitle:@"完成" style:UIBarButtonItemStyleDone
-                                        target:self action:@selector(dismissKeyboard)],
+- (void)buildGroups {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    NSString *provider = [d stringForKey:@"gm.providerName"] ?: ([d stringForKey:@"gm.baseURL"] ?: @"未配置");
+    NSString *agentName = [d stringForKey:@"gm.agentName"] ?: @"GM Agent";
+    NSInteger appearance = [d integerForKey:@"gm.appearance"];      // 0 系统 1 浅色 2 深色
+    BOOL simple = [d boolForKey:@"gm.simpleDisplay"];
+
+    self.groups = @[
+        // AI 与服务
+        @[
+            @{@"t": @"AI 账号", @"s": provider, @"icon": @"sparkles", @"tint": UIColor.systemBlueColor,
+              @"act": @"ai"},
+            @{@"t": @"子代理", @"s": @"未启用", @"icon": @"person.2.fill", @"tint": UIColor.systemOrangeColor,
+              @"act": @"soon"},
+        ],
+        // 账号与集成
+        @[
+            @{@"t": @"GitHub 账号管理", @"s": @"未连接", @"icon": @"chevron.left.forwardslash.chevron.right",
+              @"tint": UIColor.systemBlueColor, @"act": @"soon"},
+        ],
+        // 聊天与外观
+        @[
+            @{@"t": @"外观", @"s": @[@"系统", @"浅色", @"深色"][MIN(appearance, 2)],
+              @"icon": @"circle.lefthalf.filled", @"tint": UIColor.systemPurpleColor, @"act": @"appearance"},
+            @{@"t": @"对话显示", @"s": simple ? @"简洁" : @"详细",
+              @"icon": @"arrow.up.arrow.down.square.fill", @"tint": UIColor.systemIndigoColor, @"act": @"display"},
+            @{@"t": @"智能体", @"s": agentName,
+              @"icon": @"person.crop.circle.fill", @"tint": UIColor.systemRedColor, @"act": @"agentName"},
+            @{@"t": @"有趣文案动画", @"s": @"四角轮询",
+              @"icon": @"square.grid.3x3.fill", @"tint": UIColor.systemOrangeColor, @"act": @"soon"},
+        ],
+        // 能力与工具
+        @[
+            @{@"t": @"开发能力", @"s": @"Codex / Theos / 工具链",
+              @"icon": @"terminal.fill", @"tint": UIColor.systemTealColor, @"act": @"dev"},
+            @{@"t": @"编译保护", @"s": @"普通", @"icon": @"shield.lefthalf.filled",
+              @"tint": UIColor.systemPurpleColor, @"act": @"soon"},
+            @{@"t": @"Skills 与扩展", @"s": @"暂无", @"icon": @"puzzlepiece.fill",
+              @"tint": UIColor.systemBlueColor, @"act": @"soon"},
+            @{@"t": @"存储", @"s": [self storageSummary], @"icon": @"externaldrive.fill",
+              @"tint": UIColor.systemGrayColor, @"act": @"storage"},
+        ],
+        // 帮助与诊断
+        @[
+            @{@"t": @"运行诊断", @"s": @"检查环境与能力", @"icon": @"waveform.path.ecg",
+              @"tint": UIColor.systemRedColor, @"act": @"diag"},
+            @{@"t": @"日志", @"s": @"启动与运行日志", @"icon": @"doc.text.fill",
+              @"tint": UIColor.systemGrayColor, @"act": @"log"},
+            @{@"t": @"关于", @"s": [NSString stringWithFormat:@"v%@",
+                                   [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?"],
+              @"icon": @"info.circle.fill", @"tint": UIColor.systemBlueColor, @"act": @"about"},
+        ],
     ];
-    [bar sizeToFit];
-    self.keyField.inputAccessoryView = bar;
-    self.urlField.inputAccessoryView = bar;
-    [self.keyField addTarget:self action:@selector(keyChanged) forControlEvents:UIControlEventEditingDidEnd];
+}
 
-    [NSNotificationCenter.defaultCenter addObserver:self
-                                          selector:@selector(keyboardFrameChanged:)
-                                              name:UIKeyboardWillChangeFrameNotification
-                                            object:nil];
-    [NSNotificationCenter.defaultCenter addObserver:self
-                                          selector:@selector(keyboardFrameChanged:)
-                                              name:UIKeyboardWillShowNotification
-                                            object:nil];
-    [NSNotificationCenter.defaultCenter addObserver:self
-                                          selector:@selector(keyboardFrameChanged:)
-                                              name:UIKeyboardWillHideNotification
-                                            object:nil];
-    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self
-                                                                         action:@selector(dismissKeyboard)];
-    tap.cancelsTouchesInView = NO;
-    [self.tableView addGestureRecognizer:tap];
+- (NSString *)storageSummary {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *rt = [lib stringByAppendingPathComponent:@"Runtimes"];
+    NSArray *items = [fm contentsOfDirectoryAtPath:rt error:nil];
+    if (!items.count) return @"无运行时";
+    return [NSString stringWithFormat:@"%lu 个运行时", (unsigned long)items.count];
+}
 
-    self.model = [d stringForKey:@"gm.model"] ?: @"";
-    self.models = @[];
-    if (self.urlField.text.length && self.model.length) {
-        [self fetchModelsQuietly];
+#pragma mark - Table
+
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return self.groups.count; }
+
+- (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
+    return @[@"AI 与服务", @"账号与集成", @"聊天与外观", @"能力与工具", @"帮助与诊断"][s];
+}
+
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
+    return self.groups[s].count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+    UITableViewCell *c = [tv dequeueReusableCellWithIdentifier:kCell];
+    if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:kCell];
+    NSDictionary *row = self.groups[ip.section][ip.row];
+
+    UIListContentConfiguration *cfg = [UIListContentConfiguration subtitleCellConfiguration];
+    cfg.text = row[@"t"];
+    cfg.secondaryText = row[@"s"];
+    cfg.secondaryTextProperties.color = UIColor.secondaryLabelColor;
+    cfg.secondaryTextProperties.font = [UIFont systemFontOfSize:12];
+
+    UIImageSymbolConfiguration *sym = [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightSemibold];
+    cfg.image = [[UIImage systemImageNamed:row[@"icon"]] imageWithConfiguration:sym];
+    cfg.imageProperties.tintColor = UIColor.whiteColor;
+    cfg.imageProperties.reservedLayoutSize = CGSizeMake(28, 28);
+    c.contentConfiguration = cfg;
+
+    // 左侧彩色图标块
+    c.imageView.backgroundColor = row[@"tint"];
+    c.imageView.layer.cornerRadius = 7;
+    c.imageView.layer.masksToBounds = YES;
+    c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    return c;
+}
+
+- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    [tv deselectRowAtIndexPath:ip animated:YES];
+    NSDictionary *row = self.groups[ip.section][ip.row];
+    NSString *act = row[@"act"];
+
+    if ([act isEqualToString:@"ai"]) {
+        [self.navigationController pushViewController:
+            [[GMAIAccountViewController alloc] initWithConversation:self.conversation] animated:YES];
+    } else if ([act isEqualToString:@"dev"] || [act isEqualToString:@"diag"]) {
+        [self.navigationController pushViewController:[GMDevViewController new] animated:YES];
+    } else if ([act isEqualToString:@"log"]) {
+        [self showLog];
+    } else if ([act isEqualToString:@"appearance"]) {
+        [self chooseAppearance];
+    } else if ([act isEqualToString:@"display"]) {
+        [self chooseDisplay];
+    } else if ([act isEqualToString:@"agentName"]) {
+        [self editAgentName];
+    } else if ([act isEqualToString:@"storage"]) {
+        [self showStorage];
+    } else if ([act isEqualToString:@"about"]) {
+        [self showAbout];
+    } else {
+        [self alert:[NSString stringWithFormat:@"%@\n\n该功能正在开发中，后续版本开放。", row[@"t"]]];
     }
 }
 
-- (void)dismissKeyboard {
-    [self.view endEditing:YES];
-}
+#pragma mark - 具体动作
 
-- (void)keyboardFrameChanged:(NSNotification *)note {
-    NSDictionary *info = note.userInfo;
-    CGRect end = [info[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    NSTimeInterval dur = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
-    CGRect inView = [self.view convertRect:end fromView:nil];
-    CGFloat overlap = CGRectGetMaxY(self.view.bounds) - CGRectGetMinY(inView);
-    CGFloat inset = MAX(0, overlap - self.view.safeAreaInsets.bottom);
-    UIEdgeInsets ei = self.tableView.contentInset;
-    ei.bottom = inset + 8;
-    self.tableView.contentInset = ei;
-    self.tableView.scrollIndicatorInsets = ei;
-    if (dur <= 0) dur = 0.25;
-    [UIView animateWithDuration:dur animations:^{
-        [self.view layoutIfNeeded];
-    }];
-    // 让当前聚焦的输入框可见
-    UIView *first = [self findFirstResponder:self.view];
-    if (first) {
-        UITableViewCell *cell = (UITableViewCell *)first.superview.superview;
-        if ([cell isKindOfClass:[UITableViewCell class]]) {
-            NSIndexPath *ip = [self.tableView indexPathForCell:cell];
-            if (ip) [self.tableView scrollToRowAtIndexPath:ip
-                                          atScrollPosition:UITableViewScrollPositionMiddle
-                                                  animated:YES];
-        }
-    }
-}
-
-- (UIView *)findFirstResponder:(UIView *)v {
-    if (v.isFirstResponder) return v;
-    for (UIView *sub in v.subviews) {
-        UIView *r = [self findFirstResponder:sub];
-        if (r) return r;
-    }
-    return nil;
-}
-
-- (UITextField *)makeField:(NSString *)ph secure:(BOOL)secure {
-    UITextField *f = [UITextField new];
-    f.placeholder = ph;
-    f.secureTextEntry = secure;
-    f.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-    f.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    f.autocorrectionType = UITextAutocorrectionTypeNo;
-    f.spellCheckingType = UITextSpellCheckingTypeNo;
-    f.clearButtonMode = UITextFieldViewModeWhileEditing;
-    f.returnKeyType = UIReturnKeyDone;
-    f.delegate = self;
-    f.translatesAutoresizingMaskIntoConstraints = NO;
-    return f;
-}
-
-- (BOOL)textFieldShouldReturn:(UITextField *)tf {
-    [tf resignFirstResponder];
-    return YES;
-}
-
-// ---- 地址归一化：用户可能只填 host 或 /v1 或完整 /chat/completions ----
-- (NSString *)normalizedBase {
-    NSString *s = [self.urlField.text stringByTrimmingCharactersInSet:
-                   [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-    if (!s.length) return @"";
-    if (![s.lowercaseString hasPrefix:@"http://"] && ![s.lowercaseString hasPrefix:@"https://"]) {
-        s = [@"https://" stringByAppendingString:s];
-    }
-    while ([s hasSuffix:@"/"]) s = [s substringToIndex:s.length - 1];
-    if ([s hasSuffix:@"/chat/completions"]) {
-        s = [s substringToIndex:s.length - @"/chat/completions".length];
-    }
-    return s;
-}
-
-- (NSString *)chatURL {
-    NSString *b = [self normalizedBase];
-    if (!b.length) return @"";
-    return [b stringByAppendingString:@"/chat/completions"];
-}
-
-- (NSString *)modelsURL {
-    NSString *b = [self normalizedBase];
-    if (!b.length) return @"";
-    return [b stringByAppendingString:@"/models"];
-}
-
-- (void)pasteKey {
-    NSString *s = [UIPasteboard generalPasteboard].string;
-    if (s.length) {
-        self.keyField.text = [s stringByTrimmingCharactersInSet:
-                              [NSCharacterSet whitespaceAndNewlineCharacterSet]];
-        if (self.models.count == 0) [self fetchModelsQuietly];
-    }
-}
-
-- (void)urlChanged {
-    [self fetchModelsQuietly];
-}
-
-- (void)keyChanged {
-    if (self.models.count == 0) [self fetchModelsQuietly];
-}
-
-- (void)fetchModelsQuietly {
-    self.loadingModels = YES;
-    self.statusText = @"正在获取模型列表…";
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:2]
-                  withRowAnimation:UITableViewRowAnimationNone];
-
-    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self modelsURL]]];
-    r.HTTPMethod = @"GET";
-    r.timeoutInterval = 20;
-    NSString *key = self.keyField.text.length ? self.keyField.text : kcGet();
-    if (key.length) [r setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];
-    [r setValue:@"application/json" forHTTPHeaderField:@"Accept"];
-
-    __weak typeof(self) wself = self;
-    [[[NSURLSession sharedSession] dataTaskWithRequest:r
-                                    completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(wself) s = wself;
-            if (!s) return;
-            s.loadingModels = NO;
-            NSInteger code = [(NSHTTPURLResponse *)resp statusCode];
-            if (err) {
-                s.statusText = [NSString stringWithFormat:@"获取失败：%@", err.localizedDescription];
-            } else if (code == 401 || code == 403) {
-                s.statusText = @"获取失败：Key 无效（可先填 Key 再获取）";
-            } else if (code >= 400) {
-                s.statusText = [NSString stringWithFormat:@"获取失败：HTTP %ld", (long)code];
-            } else {
-                id obj = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
-                NSMutableArray *ids = [NSMutableArray array];
-                if ([obj isKindOfClass:[NSDictionary class]] && [obj[@"data"] isKindOfClass:[NSArray class]]) {
-                    for (id m in obj[@"data"]) {
-                        NSString *ident = nil;
-                        if ([m isKindOfClass:[NSDictionary class]]) {
-                            ident = m[@"id"] ?: m[@"name"];
-                        } else if ([m isKindOfClass:[NSString class]]) {
-                            ident = m;
-                        }
-                        if (ident.length) [ids addObject:ident];
-                    }
-                } else if ([obj isKindOfClass:[NSArray class]]) {
-                    for (id m in obj) {
-                        if ([m isKindOfClass:[NSDictionary class]] && m[@"id"]) [ids addObject:m[@"id"]];
-                        else if ([m isKindOfClass:[NSString class]]) [ids addObject:m];
-                    }
-                }
-                s.models = [ids sortedArrayUsingSelector:@selector(compare:)];
-                if (s.models.count) {
-                    s.statusText = [NSString stringWithFormat:@"已获取 %lu 个模型", (unsigned long)s.models.count];
-                    if (!s.model.length || ![s.models containsObject:s.model]) s.model = s.models.firstObject;
-                } else {
-                    s.statusText = @"未获取到模型（可手动输入模型名）";
-                }
-            }
-            [s.tableView reloadSections:[NSIndexSet indexSetWithIndex:2]
-                       withRowAnimation:UITableViewRowAnimationNone];
-            [s.tableView reloadSections:[NSIndexSet indexSetWithIndex:1]
-                       withRowAnimation:UITableViewRowAnimationNone];
-        });
-    }] resume];
-}
-
-- (void)pickModel {
-    if (self.loadingModels) return;
-    if (self.models.count == 0) {
-        [self fetchModelsQuietly];
-        [self alert:@"正在获取模型列表，稍后再点一次"];
-        return;
-    }
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"选择模型"
+- (void)chooseAppearance {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"外观"
                                                              message:nil
                                                       preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSString *m in self.models) {
-        [a addAction:[UIAlertAction actionWithTitle:m style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
-            self.model = m;
-            [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:1]
-                          withRowAnimation:UITableViewRowAnimationNone];
+    NSArray *names = @[@"系统", @"浅色", @"深色"];
+    for (NSInteger i = 0; i < names.count; i++) {
+        [a addAction:[UIAlertAction actionWithTitle:names[i] style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+            [[NSUserDefaults standardUserDefaults] setInteger:i forKey:@"gm.appearance"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+            UIUserInterfaceStyle st = i == 1 ? UIUserInterfaceStyleLight :
+                                      (i == 2 ? UIUserInterfaceStyleDark : UIUserInterfaceStyleUnspecified);
+            for (UIScene *sc in UIApplication.sharedApplication.connectedScenes)
+                if ([sc isKindOfClass:[UIWindowScene class]])
+                    for (UIWindow *w in ((UIWindowScene *)sc).windows) w.overrideUserInterfaceStyle = st;
+            [self buildGroups];
+            [self.tableView reloadData];
         }]];
     }
-    [a addAction:[UIAlertAction actionWithTitle:@"手动输入" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
-        [self manualModel];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    a.popoverPresentationController.sourceView = self.view;
+    a.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2, 200, 1, 1);
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+- (void)chooseDisplay {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"对话显示"
+                                                             message:@"简洁模式会隐藏思考过程与工具详情"
+                                                      preferredStyle:UIAlertControllerStyleActionSheet];
+    [a addAction:[UIAlertAction actionWithTitle:@"详细" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        [[NSUserDefaults standardUserDefaults] setBool:NO forKey:@"gm.simpleDisplay"];
+        [self buildGroups]; [self.tableView reloadData];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"简洁" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        [[NSUserDefaults standardUserDefaults] setBool:YES forKey:@"gm.simpleDisplay"];
+        [self buildGroups]; [self.tableView reloadData];
     }]];
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     a.popoverPresentationController.sourceView = self.view;
@@ -305,194 +206,67 @@ static NSString *kcGet(void) {
     [self presentViewController:a animated:YES completion:nil];
 }
 
-- (void)manualModel {
-    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"模型名"
-                                                             message:@"例如 deepseek-chat"
-                                                      preferredStyle:UIAlertControllerStyleAlert];
+- (void)editAgentName {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"智能体名称"
+                                                            message:nil
+                                                     preferredStyle:UIAlertControllerStyleAlert];
     [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
-        tf.text = self.model;
-        tf.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-        tf.autocapitalizationType = UITextAutocapitalizationTypeNone;
+        tf.text = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.agentName"] ?: @"GM Agent";
     }];
-    [a addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
-        self.model = a.textFields.firstObject.text ?: @"";
-        [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:1]
-                      withRowAnimation:UITableViewRowAnimationNone];
+    [a addAction:[UIAlertAction actionWithTitle:@"保存" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        NSString *n = a.textFields.firstObject.text;
+        if (n.length) {
+            [[NSUserDefaults standardUserDefaults] setObject:n forKey:@"gm.agentName"];
+            [[NSUserDefaults standardUserDefaults] synchronize];
+            [self buildGroups]; [self.tableView reloadData];
+        }
     }]];
     [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }
 
-#pragma mark - Table
+- (void)showStorage {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *rt = [lib stringByAppendingPathComponent:@"Runtimes"];
+    NSArray *items = [fm contentsOfDirectoryAtPath:rt error:nil];
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 5; }
-
-- (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
-    return @[@"连接", @"模型", @"状态", @"操作", @"诊断"][s];
-}
-
-- (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)s {
-    if (s == 0) return @"地址填到 /v1 即可（如 https://api.deepseek.com/v1），会自动补 /chat/completions";
-    if (s == 1) return @"点这一行选择模型；列表会自动从服务端 /models 获取";
-    return nil;
-}
-
-- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
-    if (s == 0) return 2;      // 地址 + Key（都在顶部，键盘挡不到）
-    if (s == 4) return 2;      // 查看日志 / 复制路径
-    return 1;
-}
-
-- (CGFloat)tableView:(UITableView *)tv heightForRowAtIndexPath:(NSIndexPath *)ip {
-    return 48;
-}
-
-- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
-    static NSString *cid = @"cell";
-    UITableViewCell *c = [tv dequeueReusableCellWithIdentifier:cid];
-    if (!c) c = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1 reuseIdentifier:cid];
-    c.selectionStyle = UITableViewCellSelectionStyleNone;
-    c.accessoryView = nil;
-    c.accessoryType = UITableViewCellAccessoryNone;
-    c.detailTextLabel.text = nil;
-    c.textLabel.textColor = UIColor.labelColor;
-
-    if (ip.section == 0) {
-        if (ip.row == 0) {
-            c.textLabel.text = @"地址";
-            [self attachField:self.urlField toCell:c];
-        } else {
-            c.textLabel.text = @"API Key";
-            [self attachField:self.keyField toCell:c];
-        }
-    } else if (ip.section == 1) {
-        c.textLabel.text = @"模型";
-        c.detailTextLabel.text = self.model.length ? self.model : @"未选择";
-        c.detailTextLabel.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-        c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        c.selectionStyle = UITableViewCellSelectionStyleDefault;
-    } else if (ip.section == 2) {
-        c.textLabel.text = self.statusText.length ? self.statusText : @"未检测";
-        c.textLabel.font = [UIFont systemFontOfSize:13];
-        c.textLabel.numberOfLines = 0;
-        c.textLabel.textColor = [self.statusText hasPrefix:@"已获取"] ? UIColor.systemGreenColor :
-                                ([self.statusText hasPrefix:@"获取失败"] || [self.statusText hasPrefix:@"未获取"]
-                                 ? UIColor.systemOrangeColor : UIColor.secondaryLabelColor);
-    } else if (ip.section == 3) {
-        c.textLabel.text = @"测试连接";
-        c.textLabel.textColor = UIColor.systemBlueColor;
-        c.selectionStyle = UITableViewCellSelectionStyleDefault;
+    NSMutableString *msg = [NSMutableString string];
+    [msg appendFormat:@"运行时目录：\n%@\n\n", rt];
+    if (items.count == 0) {
+        [msg appendString:@"（空）\n\n到「能力与工具 → 开发能力」安装。"];
     } else {
-        c.textLabel.text = ip.row == 0 ? @"查看启动日志" : @"复制日志路径";
-        c.textLabel.textColor = UIColor.systemBlueColor;
-        c.selectionStyle = UITableViewCellSelectionStyleDefault;
-        c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    }
-    return c;
-}
-
-// 关键：把输入框放进 contentView 并约束，避免被裁切/遮挡
-- (void)attachField:(UITextField *)field toCell:(UITableViewCell *)cell {
-    if (field.superview == cell.contentView) return;
-    [field.superview removeConstraints:field.constraints];
-    [NSLayoutConstraint deactivateConstraints:field.constraints];
-    [field removeFromSuperview];
-    [cell.contentView addSubview:field];
-    [NSLayoutConstraint activateConstraints:@[
-        [field.leadingAnchor constraintEqualToAnchor:cell.contentView.leadingAnchor constant:86],
-        [field.trailingAnchor constraintEqualToAnchor:cell.contentView.trailingAnchor constant:-16],
-        [field.centerYAnchor constraintEqualToAnchor:cell.contentView.centerYAnchor],
-        [field.heightAnchor constraintEqualToConstant:34],
-    ]];
-}
-
-- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
-    [tv deselectRowAtIndexPath:ip animated:YES];
-    if (ip.section == 1) {
-        [self.view endEditing:YES];
-        [self pickModel];
-    } else if (ip.section == 3) {
-        [self.view endEditing:YES];
-        [self testConnection];
-    } else if (ip.section == 4) {
-        if (ip.row == 0) {
-            [self showLog];
-        } else {
-            [UIPasteboard generalPasteboard].string = GMLogPath();
-            [self alert:[NSString stringWithFormat:@"路径已复制：\n%@", GMLogPath()]];
+        for (NSString *it in items) {
+            NSString *p = [rt stringByAppendingPathComponent:it];
+            unsigned long long size = 0;
+            NSDirectoryEnumerator *e = [fm enumeratorAtPath:p];
+            for (NSString *sub in e) {
+                NSDictionary *attr = [fm attributesOfItemAtPath:[p stringByAppendingPathComponent:sub] error:nil];
+                size += [attr fileSize];
+            }
+            [msg appendFormat:@"• %@  %.1f MB\n", it, size / 1024.0 / 1024.0];
         }
     }
+
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"存储"
+                                                             message:msg
+                                                      preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [a addAction:[UIAlertAction actionWithTitle:@"清空运行时" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *x) {
+        [fm removeItemAtPath:rt error:nil];
+        [self buildGroups]; [self.tableView reloadData];
+    }]];
+    [self presentViewController:a animated:YES completion:nil];
 }
 
-- (void)testConnection {
-    if (![self chatURL].length) { [self alert:@"请先填网关地址"]; return; }
-    NSString *key = self.keyField.text.length ? self.keyField.text : kcGet();
-    if (!key.length) { [self alert:@"请先填 API Key"]; return; }
-    if (!self.model.length) { [self alert:@"请先选择模型"]; return; }
-
-    self.statusText = @"测试中…";
-    [self.tableView reloadSections:[NSIndexSet indexSetWithIndex:2]
-                  withRowAnimation:UITableViewRowAnimationNone];
-
-    NSMutableDictionary *body = [NSMutableDictionary dictionary];
-    body[@"model"] = self.model;
-    body[@"messages"] = @[@{@"role": @"user", @"content": @"ping"}];
-    body[@"max_tokens"] = @16;
-    body[@"stream"] = @NO;
-
-    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:[self chatURL]]];
-    r.HTTPMethod = @"POST";
-    r.timeoutInterval = 40;
-    [r setValue:[@"Bearer " stringByAppendingString:key] forHTTPHeaderField:@"Authorization"];
-    [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
-    r.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
-
-    __weak typeof(self) wself = self;
-    [[[NSURLSession sharedSession] dataTaskWithRequest:r
-                                    completionHandler:^(NSData *data, NSURLResponse *resp, NSError *err) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            __strong typeof(wself) s = wself;
-            if (!s) return;
-            NSInteger code = [(NSHTTPURLResponse *)resp statusCode];
-            if (err) {
-                s.statusText = [NSString stringWithFormat:@"测试失败：%@", err.localizedDescription];
-                [s.tableView reloadSections:[NSIndexSet indexSetWithIndex:2] withRowAnimation:UITableViewRowAnimationNone];
-                return;
-            }
-            if (code >= 200 && code < 300) {
-                s.statusText = [NSString stringWithFormat:@"✅ 连接成功（%ld）· %@", (long)code, s.model];
-                [s.tableView reloadSections:[NSIndexSet indexSetWithIndex:2] withRowAnimation:UITableViewRowAnimationNone];
-            } else {
-                NSString *t = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] ?: @"";
-                if (t.length > 160) t = [t substringToIndex:160];
-                s.statusText = [NSString stringWithFormat:@"❌ HTTP %ld", (long)code];
-                [s.tableView reloadSections:[NSIndexSet indexSetWithIndex:2] withRowAnimation:UITableViewRowAnimationNone];
-                [s alert:[NSString stringWithFormat:@"HTTP %ld\n\n%@", (long)code, t]];
-            }
-        });
-    }] resume];
-}
-
-- (void)save {
-    [self.view endEditing:YES];
-    NSString *url = [self normalizedBase];
-    NSString *key = self.keyField.text ?: @"";
-    if (!url.length) { [self alert:@"请填写网关地址"]; return; }
-    if (![url.lowercaseString hasPrefix:@"http"]) { [self alert:@"地址需以 http:// 或 https:// 开头"]; return; }
-    if (!key.length) { [self alert:@"请填写 API Key"]; return; }
-    if (!self.model.length) { [self alert:@"请选择模型"]; return; }
-
-    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    [d setObject:[self chatURL] forKey:@"gm.baseURL"];
-    [d setObject:url forKey:@"gm.baseRoot"];
-    [d setObject:self.model forKey:@"gm.model"];
-    [d setObject:key forKey:@"gm.apiKey"];
-    [d synchronize];
-    kcSet(key);
-
-    self.conversation.model = self.model;
-    [self.conversation pushConfigToEngine];
-    [self.navigationController popViewControllerAnimated:YES];
+- (void)showAbout {
+    NSDictionary *info = [NSBundle mainBundle].infoDictionary;
+    NSString *msg = [NSString stringWithFormat:
+        @"GM Agent\n版本 %@ (%@)\n\n"
+        @"自研 iOS Agent：ObjC 界面 + 内置 arm64 引擎。\n"
+        @"支持越狱/TrollStore 特权、shell 工具、应用启动、运行时管理。",
+        info[@"CFBundleShortVersionString"] ?: @"?", info[@"CFBundleVersion"] ?: @"?"];
+    [self alert:msg];
 }
 
 - (void)showLog {
@@ -500,7 +274,7 @@ static NSString *kcGet(void) {
                                                  encoding:NSUTF8StringEncoding error:nil];
     if (!content.length) content = @"(日志为空或文件不存在)";
     UIViewController *vc = [UIViewController new];
-    vc.title = @"启动日志";
+    vc.title = @"日志";
     vc.view.backgroundColor = UIColor.systemBackgroundColor;
     UITextView *tv = [[UITextView alloc] initWithFrame:vc.view.bounds];
     tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -508,13 +282,22 @@ static NSString *kcGet(void) {
     tv.text = content;
     tv.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
     [vc.view addSubview:tv];
+    vc.navigationItem.rightBarButtonItem =
+        [[UIBarButtonItem alloc] initWithTitle:@"复制路径"
+                                         style:UIBarButtonItemStylePlain
+                                        target:self action:@selector(copyLogPath)];
     [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)copyLogPath {
+    [UIPasteboard generalPasteboard].string = GMLogPath();
+    [self alert:@"路径已复制"];
 }
 
 - (void)alert:(NSString *)msg {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"GM Agent"
-                                                              message:msg
-                                                       preferredStyle:UIAlertControllerStyleAlert];
+                                                             message:msg
+                                                      preferredStyle:UIAlertControllerStyleAlert];
     [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }

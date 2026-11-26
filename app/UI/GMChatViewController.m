@@ -64,23 +64,18 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"GM Agent";
+    self.title = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.agentName"] ?: @"GM Agent";
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     self.navigationItem.leftBarButtonItem =
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"list.bullet"]
                                          style:UIBarButtonItemStylePlain
                                         target:self
                                         action:@selector(openSessions)];
-    self.navigationItem.rightBarButtonItems = @[
-        [[UIBarButtonItem alloc] initWithTitle:@"设置"
+    self.navigationItem.rightBarButtonItem =
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"gearshape"]
                                          style:UIBarButtonItemStylePlain
                                         target:self
-                                        action:@selector(openSettings)],
-        [[UIBarButtonItem alloc] initWithTitle:@"能力"
-                                         style:UIBarButtonItemStylePlain
-                                        target:self
-                                        action:@selector(openDev)],
-    ];
+                                        action:@selector(openSettings)];
 
     _table = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
     _table.translatesAutoresizingMaskIntoConstraints = NO;
@@ -248,20 +243,24 @@
             break;
         default: {
             cell.metaLabel.text = m.streaming ? @"GM Agent · 生成中…" : @"GM Agent";
-            if (m.text.length) {
-                cell.bodyLabel.textColor = UIColor.labelColor;
-                cell.bodyLabel.font = [UIFont systemFontOfSize:15];
-                cell.bodyLabel.text = m.text;
-            } else if (m.reasoning.length) {
-                /* 只有思考内容时：灰色小字显示，避免被误当成正文 */
-                cell.bodyLabel.textColor = UIColor.tertiaryLabelColor;
-                cell.bodyLabel.font = [UIFont systemFontOfSize:12];
-                cell.bodyLabel.text = [NSString stringWithFormat:@"思考：%@", m.reasoning];
-            } else {
-                cell.bodyLabel.textColor = UIColor.labelColor;
-                cell.bodyLabel.font = [UIFont systemFontOfSize:15];
-                cell.bodyLabel.text = m.streaming ? @"…" : @"";
+            BOOL simple = [[NSUserDefaults standardUserDefaults] boolForKey:@"gm.simpleDisplay"];
+            NSMutableString *body = [NSMutableString string];
+
+            /* 思考过程：折叠为一行；展开才显示全文 */
+            if (m.reasoning.length && !simple) {
+                if (m.reasoningExpanded) {
+                    [body appendFormat:@"💭 思考过程（点此收起）\n%@\n\n────────\n\n", m.reasoning];
+                } else {
+                    [body appendFormat:@"💭 思考过程（%lu 字，点此展开）\n\n", (unsigned long)m.reasoning.length];
+                }
             }
+            if (m.text.length) [body appendString:m.text];
+            else if (m.streaming) [body appendString:@"…"];
+
+            cell.metaLabel.text = m.streaming ? @"GM Agent · 生成中…" : @"GM Agent";
+            cell.bodyLabel.text = body;
+            cell.bodyLabel.font = [UIFont systemFontOfSize:15];
+            cell.bodyLabel.textColor = UIColor.labelColor;
             break;
         }
     }

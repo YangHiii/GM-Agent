@@ -11,6 +11,7 @@ typedef NS_ENUM(NSInteger, GMRole) { GMRoleUser = 0, GMRoleAssistant, GMRoleSyst
 @property (nonatomic, copy) NSString *toolSummary;
 @property (nonatomic, copy) NSString *itemID;
 @property (nonatomic) BOOL streaming;
+@property (nonatomic) BOOL reasoningExpanded;   /* 思考过程是否展开 */
 + (instancetype)userText:(NSString *)text;
 + (instancetype)assistantText:(NSString *)text;
 + (instancetype)tool:(NSString *)name summary:(NSString *)summary;

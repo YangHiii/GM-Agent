@@ -27,6 +27,9 @@ GMSession *gm_session_new(const char *thread_id) {
     snprintf(dir, sizeof(dir), "%.480s/.gm/sessions", home);
     mkdirs(dir);
     snprintf(s->path, sizeof(s->path), "%.480s/%.40s.jsonl", dir, s->id);
+    /* 立即创建空文件，便于后续 append 与 history 读取 */
+    FILE *f = fopen(s->path, "a");
+    if (f) fclose(f);
     return s;
 }
 

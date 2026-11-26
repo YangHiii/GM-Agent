@@ -160,8 +160,8 @@ int gm_engine_main(int argc, char **argv) {
         } else if (method && strcmp(method, "gm/thread/start") == 0) {
             const char *want = gm_str(gm_obj_get(params, "threadId"));
             char tid[64];
-            if (want && *want && gm_session_exists(want)) {
-                snprintf(tid, sizeof(tid), "%s", want);   /* 恢复已有会话 */
+            if (want && *want) {
+                snprintf(tid, sizeof(tid), "%.40s", want);   /* 客户端指定：一律用它（恢复或新建） */
             } else {
                 snprintf(tid, sizeof(tid), "gm-%lld-%d", (long long)time(NULL), ++g_turn_counter);
             }
@@ -174,7 +174,10 @@ int gm_engine_main(int argc, char **argv) {
         } else if (method && strcmp(method, "gm/thread/history") == 0) {
             const char *tid = gm_str(gm_obj_get(params, "threadId"));
             GMPVal *r = gm_val_obj(&g_turn);
-            gm_obj_set(&g_turn, r, "messages", gm_session_load_history(tid, &g_turn));
+            GMPVal *hist = gm_session_load_history(tid, &g_turn);
+            gm_obj_set(&g_turn, r, "messages", hist);
+            gm_obj_set(&g_turn, r, "count", gm_val_num(&g_turn, (double)gm_arr_count(hist)));
+            fprintf(stderr, "[gm] history %s -> %zu 条\n", tid ? tid : "(null)", gm_arr_count(hist));
             reply(&g_turn, id, r, NULL);
         } else if (method && strcmp(method, "gm/ping") == 0) {
             reply(&g_turn, id, gm_val_str(&g_turn, "pong"), NULL);
