@@ -27,8 +27,9 @@ echo "== 端到端（mock 提供方 → 工具调用 → 回填）"
 PORT=$((18000 + $$ % 1000))
 GM_MOCK_PORT=$PORT python3 scripts/mock_provider.py 2>/dev/null & MOCK=$!
 sleep 1.5
-E2E=$(printf '{"id":1,"method":"gm/thread/start"}\n{"id":2,"method":"gm/turn/start","params":{"text":"run echo"}}\n' \
-  | GM_BASE_URL="http://127.0.0.1:$PORT/v1/chat/completions" "$BIN" --mode app-server 2>/dev/null)
+# turn 现在是异步线程：必须保持 stdin 打开直到事件流结束
+E2E=$( ( printf '{"id":1,"method":"gm/thread/start"}\n{"id":2,"method":"gm/turn/start","params":{"text":"run echo","model":"m","baseURL":"http://127.0.0.1:%s/v1/chat/completions","apiKey":"k"}}\n' "$PORT"; sleep 8 ) \
+  | "$BIN" --mode app-server 2>/dev/null )
 kill $MOCK 2>/dev/null || true
 echo "$E2E" | tail -6
 echo "$E2E" | grep -q 'gm/event/toolCall'   || { echo FAIL toolCall; exit 1; }

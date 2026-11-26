@@ -31,9 +31,14 @@ static GMBridge *gBridge = nil;
 @implementation GMBridge
 
 + (instancetype)shared {
-    if (!gBridge) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
         gBridge = [[GMBridge alloc] init];
-    }
+        NSError *e = nil;
+        if (![gBridge startWithError:&e]) {
+            GMLog(@"shared 启动引擎失败: %@", e.localizedDescription);
+        }
+    });
     return gBridge;
 }
 
@@ -95,6 +100,8 @@ static void *engineThread(void *ctx) {
 
 - (BOOL)startWithError:(NSError **)error {
     if (_running) return YES;
+    @synchronized (self) {
+        if (_running) return YES;
 
     NSString *engine = [self _enginePath];
     if (!engine) {
@@ -137,6 +144,7 @@ static void *engineThread(void *ctx) {
     pthread_create(&_thread, NULL, engineThread, NULL);
     _running = YES;
     return YES;
+    }   /* @synchronized */
 }
 
 - (void)stop {

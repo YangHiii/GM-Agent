@@ -230,6 +230,7 @@ static UIColor *TintColor(NSString *name) {
                     @"sha": v[@"archive_sha256"] ?: @"",
                     @"installed": @(installed),
                     @"order": @([v[@"order"] integerValue]),
+                    @"size": @(size),
                     @"summary": v[@"summary"] ?: @"",
                     @"version": v[@"version"] ?: @"",
                 } mutableCopy];
@@ -259,15 +260,7 @@ static UIColor *TintColor(NSString *name) {
     NSString *url = item[@"url"];
     if (!url.length) { [self alert:@"该运行时没有下载地址"]; return; }
 
-    long long size = 0;
-    NSString *state = item[@"state"] ?: @"";
-    NSRange r = [state rangeOfString:@"·"];
-    if (r.location != NSNotFound) {
-        NSString *sz = [state substringFromIndex:r.location + 1];
-        size = (long long)([[sz stringByReplacingOccurrencesOfString:@"MB" withString:@""]
-                            stringByReplacingOccurrencesOfString:@"GB" withString:@""] doubleValue]
-               * ([sz containsString:@"GB"] ? 1024.0 * 1024.0 : 1.0) * 1024.0 * 1024.0);
-    }
+    long long size = [item[@"size"] longLongValue];
     NSString *sizeText = FormatSize(size);
 
     UIAlertController *a = [UIAlertController alertControllerWithTitle:name

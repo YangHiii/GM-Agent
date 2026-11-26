@@ -22,6 +22,10 @@ static char g_line[LINE_MAX_LEN];
 static GMArena g_out;          /* 事件输出用（index 1），跨 turn 生命周期 */
 static GMArena g_turn;         /* 回合主 arena */
 static GMProvider g_prov;
+static pthread_mutex_t g_emitLock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t g_turnThread;
+static volatile int g_turnRunning = 0;
+static volatile int g_cancelFlag = 0;
 static GMSession *g_session;
 static int g_turn_counter = 0;
 
@@ -38,10 +42,41 @@ static void out_write(GMPVal *msg) {
  * turn.c 传入的事件对象在 g_out 里构造，需在主循环 reset 前发完，
  * 所以这里把序列化结果立刻刷到 stdout，然后 reset g_out。 */
 void gm_emit(GMArena *arena, GMPVal *msg) {
-    /* msg 来自 turn 的 outArena，不能回退该 arena（turn 后续还要用它）；
-       直接序列化到 stdout，用完由 turn 在回合结束时整体释放。 */
     (void)arena;
+    pthread_mutex_lock(&g_emitLock);
     out_write(msg);
+    pthread_mutex_unlock(&g_emitLock);
+}
+
+int gm_turn_cancelled(void) { return g_cancelFlag; }
+
+typedef struct {
+    GMArena arena;
+    GMProvider prov;
+    char *text;
+    char *sys;
+    GMSession *session;
+} GMTurnJob;
+
+static void *turn_thread(void *arg) {
+    GMTurnJob *j = (GMTurnJob *)arg;
+    int rc = gm_turn_run(&j->arena, &j->prov, j->session, j->text, j->sys);
+    if (rc != 0 && !g_cancelFlag) {
+        GMPVal *r = gm_val_obj(&g_out);
+        GMPVal *p2 = gm_val_obj(&g_out);
+        gm_obj_set(&g_out, p2, "message", gm_val_str(&g_out, "回合失败"));
+        gm_obj_set(&g_out, r, "method", gm_val_str(&g_out, "gm/event/error"));
+        gm_obj_set(&g_out, r, "params", p2);
+        pthread_mutex_lock(&g_emitLock);
+        out_write(r);
+        pthread_mutex_unlock(&g_emitLock);
+    }
+    gm_arena_free(&j->arena);
+    free(j->text);
+    free(j->sys);
+    free(j);
+    g_turnRunning = 0;
+    return NULL;
 }
 
 static int read_line(FILE *in) {
@@ -183,7 +218,6 @@ int gm_engine_main(int argc, char **argv) {
             reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
         } else if (method && strcmp(method, "gm/turn/start") == 0) {
             const char *text = gm_str(gm_obj_get(params, "text"));
-            /* 允许随 turn 一起覆盖模型（保证配置一定生效） */
             const char *tm = gm_str(gm_obj_get(params, "model"));
             const char *tk = gm_str(gm_obj_get(params, "apiKey"));
             const char *tb = gm_str(gm_obj_get(params, "baseURL"));
@@ -192,26 +226,42 @@ int gm_engine_main(int argc, char **argv) {
             if (tm && *tm) snprintf(g_prov.model, sizeof(g_prov.model), "%s", tm);
             fprintf(stderr, "[gm] turn model=%s key=%s base=%s\n",
                     g_prov.model, g_prov.api_key[0] ? "(set)" : "(empty)", g_prov.base_url);
+
+            if (g_turnRunning) {
+                reply(&g_turn, id, NULL, "上一轮尚未结束");
+                continue;
+            }
             if (!g_session) {
                 char tid[64];
                 snprintf(tid, sizeof(tid), "gm-%lld-%d", (long long)time(NULL), ++g_turn_counter);
                 g_session = gm_session_new(tid);
             }
-            reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
+
+            GMTurnJob *job = calloc(1, sizeof(GMTurnJob));
+            if (!job) { reply(&g_turn, id, NULL, "内存不足"); continue; }
+            gm_arena_init(&job->arena, ARENA_SIZE);
+            job->prov = g_prov;
+            job->text = strdup(text ? text : "");
+            job->sys = strdup("你是 GM Agent，运行在用户 iOS 设备上。"
+                              "可以使用 shell 工具读写文件、执行命令。"
+                              "回答简洁、直接给出结果与命令。");
+            job->session = g_session;
+
+            g_cancelFlag = 0;
+            g_turnRunning = 1;
             gm_session_append_user(g_session, text ? text : "");
-            int rc = gm_turn_run(&g_out, &g_prov, g_session, text ? text : "",
-                                 "你是 GM Agent，运行在用户 iOS 设备上。"
-                                 "可以使用 shell 工具读写文件、执行命令。"
-                                 "回答简洁、直接给出结果与命令。");
-            if (rc != 0) {
-                GMPVal *r = gm_val_obj(&g_out);
-                GMPVal *p = gm_val_obj(&g_out);
-                gm_obj_set(&g_out, p, "message", gm_val_str(&g_out, "回合失败"));
-                gm_obj_set(&g_out, r, "method", gm_val_str(&g_out, "gm/event/error"));
-                gm_obj_set(&g_out, r, "params", p);
-                out_write(r);
-                gm_arena_reset(&g_out);
+            if (pthread_create(&g_turnThread, NULL, turn_thread, job) != 0) {
+                g_turnRunning = 0;
+                gm_arena_free(&job->arena);
+                free(job->text); free(job->sys); free(job);
+                reply(&g_turn, id, NULL, "无法创建线程");
+                continue;
             }
+            pthread_detach(g_turnThread);
+            reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
+        } else if (method && strcmp(method, "gm/turn/cancel") == 0) {
+            g_cancelFlag = 1;
+            reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
         } else if (method && strcmp(method, "gm/tool/shell") == 0) {
             const char *cmd = gm_str(gm_obj_get(params, "command"));
             int code = 0;

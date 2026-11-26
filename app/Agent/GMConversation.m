@@ -185,6 +185,8 @@
     if ([method isEqualToString:@"gm/event/turnEnd"]) {
         _pendingAssistant.streaming = NO;
         _pendingAssistant = nil;
+        _pendingAssistant = nil;
+        _pendingAssistant = nil;
         [self.delegate conversationDidChange:self];
         return;
     }

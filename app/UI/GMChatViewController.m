@@ -47,6 +47,7 @@
 @property (nonatomic, strong) UIButton *sendButton;
 @property (nonatomic, strong) UIView *composer;
 @property (nonatomic, strong) NSLayoutConstraint *composerBottom;
+@property (nonatomic) BOOL generating;
 @end
 
 @implementation GMChatViewController
@@ -161,10 +162,20 @@
 }
 
 - (void)send {
+    if (self.generating) {
+        [self.conversation cancelCurrentTurn];
+        return;
+    }
     NSString *text = self.input.text;
     if (!text.length) return;
     self.input.text = @"";
     [self.conversation sendUserText:text];
+}
+
+- (void)updateSendButton {
+    NSString *sym = self.generating ? @"stop.circle.fill" : @"arrow.up.circle.fill";
+    [self.sendButton setImage:[UIImage systemImageNamed:sym] forState:UIControlStateNormal];
+    self.sendButton.tintColor = self.generating ? UIColor.systemRedColor : UIColor.labelColor;
 }
 
 - (void)newThread {
@@ -183,6 +194,9 @@
 #pragma mark - Conversation delegate
 
 - (void)conversationDidChange:(GMConversation *)conversation {
+    GMMessage *last = conversation.messages.lastObject;
+    self.generating = last.streaming;
+    [self updateSendButton];
     [self.table reloadData];
     NSInteger n = [self.table numberOfRowsInSection:0];
     if (n > 0) {

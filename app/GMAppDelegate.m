@@ -26,7 +26,7 @@
 }
 - (GMBridge *)bridge {
     if (!_bridge) {
-        _bridge = [GMBridge new];
+        _bridge = [GMBridge shared];
         NSError *err = nil;
         if (![_bridge startWithError:&err]) {
             GMLog(@"引擎启动失败: %@", err.localizedDescription);

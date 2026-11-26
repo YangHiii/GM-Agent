@@ -78,7 +78,17 @@ int gm_turn_run(GMArena *arena, const GMProvider *prov, GMSession *session,
 
     GMPVal *tools = gm_tool_specs(arena);
 
+    extern int gm_turn_cancelled(void);
     for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
+        if (gm_turn_cancelled()) {
+            GMPVal *cn = gm_val_obj(arena);
+            GMPVal *cp = gm_val_obj(arena);
+            gm_obj_set(arena, cp, "finish", gm_val_str(arena, "cancelled"));
+            gm_obj_set(arena, cn, "method", gm_val_str(arena, "gm/event/turnEnd"));
+            gm_obj_set(arena, cn, "params", cp);
+            gm_emit(arena, cn);
+            return 0;
+        }
         /* 拼 body */
         GMArena bodyArena;
         gm_arena_init(&bodyArena, 4 * 1024 * 1024);
