@@ -12,6 +12,10 @@
 #include <sys/socket.h>
 
 typedef int (*GMEngineMainFn)(int, char **);
+typedef int (*GMHostToolFn)(const char *, const char *, char **);
+typedef void (*GMSetHostToolFn)(GMHostToolFn);
+
+extern int GMHostToolDispatch(const char *name, const char *args, char **out);
 
 @interface GMBridge () {
     int _toEngineFd;      // 我们写
@@ -73,6 +77,11 @@ static void *engineThread(void *ctx) {
         return NULL;
     }
     GMEngineMainFn fn = (GMEngineMainFn)dlsym(h, "gm_engine_main");
+    GMSetHostToolFn setter = (GMSetHostToolFn)dlsym(h, "gm_set_host_tool_handler");
+    if (setter) {
+        setter(GMHostToolDispatch);
+        GMLog(@"宿主工具已注册");
+    }
     if (!fn) {
         GMLog(@"dlsym gm_engine_main 失败: %s", dlerror());
         return NULL;

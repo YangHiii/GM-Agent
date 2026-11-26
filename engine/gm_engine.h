@@ -105,6 +105,11 @@ int gm_provider_chat(const GMProvider *p, const char *body_json,
                      double *in_tokens, double *out_tokens,
                      char **err_out);
 
+/* ---------------- 宿主工具（由 App 实现，引擎在同进程调用） ---------------- */
+typedef int (*GMHostToolFn)(const char *name, const char *args_json, char **out);
+void gm_set_host_tool_handler(GMHostToolFn fn);
+GMHostToolFn gm_host_tool_handler(void);
+
 /* ---------------- 工具 ---------------- */
 char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, int *code);
 GMPVal *gm_tool_specs(GMArena *a);

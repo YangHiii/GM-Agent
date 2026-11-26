@@ -48,6 +48,10 @@ static const char *gm_find_shell(void) {
     return NULL;
 }
 
+static GMHostToolFn g_hostTool = NULL;
+void gm_set_host_tool_handler(GMHostToolFn fn) { g_hostTool = fn; }
+GMHostToolFn gm_host_tool_handler(void) { return g_hostTool; }
+
 char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, int *code_out) {
     if (code_out) *code_out = -1;
     if (!gm_find_shell()) {
@@ -79,9 +83,12 @@ char *gm_tool_run_shell(const char *command, const char *cwd, int timeout_ms, in
         /* 补上常见 PATH，越狱环境命令多在 /var/jb/usr/bin */
         const char *oldpath = getenv("PATH");
         char newpath[2048];
+        const char *bundle = getenv("GM_BUNDLE_DIR");
         snprintf(newpath, sizeof(newpath),
+                 "%s/Helpers:%s/Helpers/TheosCompat:"
                  "/var/jb/usr/bin:/var/jb/bin:/var/jb/usr/sbin:"
                  "/usr/bin:/bin:/usr/sbin:/sbin:%s",
+                 bundle ? bundle : "/tmp", bundle ? bundle : "/tmp",
                  oldpath ? oldpath : "");
         setenv("PATH", newpath, 1);
 
@@ -214,5 +221,27 @@ GMPVal *gm_tool_specs(GMArena *a) {
     gm_obj_set(a, fn, "parameters", params);
     gm_obj_set(a, t, "function", fn);
     gm_arr_push(a, tools, t);
+
+    /* open_app：由 App 侧用 LSApplicationWorkspace 执行 */
+    GMPVal *t2 = gm_val_obj(a);
+    gm_obj_set(a, t2, "type", gm_val_str(a, "function"));
+    GMPVal *fn2 = gm_val_obj(a);
+    gm_obj_set(a, fn2, "name", gm_val_str(a, "open_app"));
+    gm_obj_set(a, fn2, "description",
+               gm_val_str(a, "打开 iOS 上的应用。参数 name 为应用名（如 红果短剧）或 bundle id。"));
+    GMPVal *p2 = gm_val_obj(a);
+    gm_obj_set(a, p2, "type", gm_val_str(a, "object"));
+    GMPVal *pr2 = gm_val_obj(a);
+    GMPVal *nm = gm_val_obj(a);
+    gm_obj_set(a, nm, "type", gm_val_str(a, "string"));
+    gm_obj_set(a, nm, "description", gm_val_str(a, "应用名或 bundle id"));
+    gm_obj_set(a, pr2, "name", nm);
+    gm_obj_set(a, p2, "properties", pr2);
+    GMPVal *rq2 = gm_val_arr(a);
+    gm_arr_push(a, rq2, gm_val_str(a, "name"));
+    gm_obj_set(a, p2, "required", rq2);
+    gm_obj_set(a, fn2, "parameters", p2);
+    gm_obj_set(a, t2, "function", fn2);
+    gm_arr_push(a, tools, t2);
     return tools;
 }

@@ -239,11 +239,24 @@
             cell.bodyLabel.textColor = UIColor.secondaryLabelColor;
             cell.bodyLabel.text = m.text;
             break;
-        default:
+        default: {
             cell.metaLabel.text = m.streaming ? @"GM Agent · 生成中…" : @"GM Agent";
-            cell.bodyLabel.textColor = UIColor.labelColor;
-            cell.bodyLabel.text = m.text.length ? m.text : (m.reasoning ?: @"");
+            if (m.text.length) {
+                cell.bodyLabel.textColor = UIColor.labelColor;
+                cell.bodyLabel.font = [UIFont systemFontOfSize:15];
+                cell.bodyLabel.text = m.text;
+            } else if (m.reasoning.length) {
+                /* 只有思考内容时：灰色小字显示，避免被误当成正文 */
+                cell.bodyLabel.textColor = UIColor.tertiaryLabelColor;
+                cell.bodyLabel.font = [UIFont systemFontOfSize:12];
+                cell.bodyLabel.text = [NSString stringWithFormat:@"思考：%@", m.reasoning];
+            } else {
+                cell.bodyLabel.textColor = UIColor.labelColor;
+                cell.bodyLabel.font = [UIFont systemFontOfSize:15];
+                cell.bodyLabel.text = m.streaming ? @"…" : @"";
+            }
             break;
+        }
     }
     return cell;
 }

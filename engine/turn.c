@@ -203,7 +203,21 @@ int gm_turn_run(GMArena *arena, const GMProvider *prov, GMSession *session,
             gm_arena_free(&argArena);
 
             int code = 0;
-            char *out = gm_tool_run_shell(command, cwd[0] ? cwd : NULL, 120000, &code);
+            char *out = NULL;
+            if (strcmp(t.tc_name[i], "open_app") == 0) {
+                GMHostToolFn host = gm_host_tool_handler();
+                char *hostOut = NULL;
+                int hrc = host ? host("open_app", t.tc_args[i].p ? t.tc_args[i].p : "{}", &hostOut) : -2;
+                if (hrc == -2) {
+                    out = strdup("当前环境不支持打开应用（宿主未注册该能力）");
+                    code = 1;
+                } else {
+                    out = hostOut ? hostOut : strdup(hrc == 0 ? "已打开" : "打开失败");
+                    code = hrc;
+                }
+            } else {
+                out = gm_tool_run_shell(command, cwd[0] ? cwd : NULL, 120000, &code);
+            }
             if (!out) out = strdup("");
             size_t outlen = strlen(out);
             if (outlen > 8000) out[8000] = 0;   /* 回填给模型时截断，避免撑爆上下文 */

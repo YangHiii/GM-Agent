@@ -63,6 +63,16 @@ workflows:
           cp app/Resources/cacert.pem "$APP/cacert.pem"
           cp -R app/Resources/Helpers "$APP/Helpers"
           chmod +x "$APP/Helpers/"* 2>/dev/null || true
+          # 建立 busybox 风格的多调用链接（argv[0] 分发）
+          cd "$APP/Helpers"
+          for c in cat ls grep sed head tail wc find xargs sort uniq cut tr tee stat du date \
+                   uname which readlink realpath mkdir rm rmdir mv cp ln chmod touch od xxd \
+                   basename dirname nl tar env true false pwd sleep; do
+            ln -sf ca-filetool "$c"
+          done
+          ln -sf bash.real bash
+          ln -sf bash.real sh
+          ls -la | head -40
           cp build/libgm-engine.dylib "$APP/libgm-engine.dylib"
           chmod +x "$APP/GMAgent"
           ls -la "$APP"
@@ -71,7 +81,7 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist" | tee /tmp/ver.txt
           V=$(cat /tmp/ver.txt | tr -d ' ')
-          test "$V" = "135" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
+          test "$V" = "136" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
           # 自检：可执行文件必须在，且是 arm64
           test -x "$APP/GMAgent"
           test -s "$APP/libgm-engine.dylib"
