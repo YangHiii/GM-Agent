@@ -454,4 +454,20 @@ static UIColor *TintColor(NSString *name) {
     [self installItem:it];
 }
 
+
+- (void)offerSkipVerify:(NSDictionary *)item message:(NSString *)msg {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"校验失败"
+                                                            message:msg
+                                                     preferredStyle:UIAlertControllerStyleAlert];
+    __weak typeof(self) w = self;
+    [a addAction:[UIAlertAction actionWithTitle:@"忽略校验强制安装"
+                                          style:UIAlertActionStyleDestructive
+                                        handler:^(UIAlertAction *x) {
+        w.skipVerifyOnce = YES;
+        [w beginInstall:item];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
 @end
