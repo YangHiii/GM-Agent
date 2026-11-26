@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <pthread.h>
 #include <sys/socket.h>
+#include <fcntl.h>
 
 typedef int (*GMEngineMainFn)(int, char **);
 typedef int (*GMHostToolFn)(const char *, const char *, char **);
@@ -93,16 +94,26 @@ static void *engineThread(void *ctx) {
     [[NSFileManager defaultManager] createDirectoryAtPath:rtDir
                               withIntermediateDirectories:YES attributes:nil error:nil];
     setenv("GM_RUNTIME_DIR", rtDir.fileSystemRepresentation, 1);
-    NSString *docs = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
-    NSString *sessDir = [docs stringByAppendingPathComponent:@"sessions"];
+    /* 会话与日志都放 Caches：no-container 下 Documents 会跑到 /var/mobile/Documents（文件 App 看不到） */
+    NSString *cache = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+    if (!cache.length) cache = NSTemporaryDirectory();
+    NSString *sessDir = [cache stringByAppendingPathComponent:@"sessions"];
     [[NSFileManager defaultManager] createDirectoryAtPath:sessDir
                               withIntermediateDirectories:YES attributes:nil error:nil];
     setenv("GM_SESSION_DIR", sessDir.fileSystemRepresentation, 1);
     GMLog(@"会话目录: %@", sessDir);
-    /* 引擎日志单独一个文件，便于诊断流式/网络问题 */
-    NSString *engLog = [docs stringByAppendingPathComponent:@"engine.log"];
+
+    NSString *engLog = [cache stringByAppendingPathComponent:@"engine.log"];
     setenv("GM_LOG_FILE", engLog.fileSystemRepresentation, 1);
     GMLog(@"引擎日志: %@", engLog);
+
+    /* 引擎的 fprintf(stderr) 也重定向到同一文件，双保险 */
+    int lfd = open(engLog.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (lfd >= 0) {
+        dup2(lfd, STDERR_FILENO);
+        close(lfd);
+        GMLog(@"stderr 已重定向到引擎日志");
+    }
     GMLog(@"运行时目录: %@", rtDir);
     NSString *ca = [[NSBundle mainBundle] pathForResource:@"cacert" ofType:@"pem"];
     if (ca) setenv("GM_CA_FILE", ca.fileSystemRepresentation, 1);

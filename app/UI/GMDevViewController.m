@@ -19,6 +19,18 @@ static NSString *FormatSize(long long bytes) {
     return [NSString stringWithFormat:@"%.1f MB", mb];
 }
 
+/// 递归计算目录占用
+static long long DirectorySize(NSString *path) {
+    NSFileManager *fm = NSFileManager.defaultManager;
+    long long total = 0;
+    NSDirectoryEnumerator *e = [fm enumeratorAtPath:path];
+    for (NSString *sub in e) {
+        NSDictionary *attr = [fm attributesOfItemAtPath:[path stringByAppendingPathComponent:sub] error:nil];
+        if (attr) total += (long long)[attr fileSize];
+    }
+    return total;
+}
+
 static UIColor *TintColor(NSString *name) {
     static NSDictionary *map;
     static dispatch_once_t once;
@@ -314,6 +326,50 @@ static UIColor *TintColor(NSString *name) {
     }
 }
 
+/// 检查已安装运行时的真实内容，并尝试执行版本命令
+- (void)inspectInstalled:(NSDictionary *)it {
+    NSString *name = it[@"title"];
+    NSString *dir = [RuntimeRoot() stringByAppendingPathComponent:it[@"id"]];
+    long long size = DirectorySize(dir);
+
+    NSMutableString *msg = [NSMutableString string];
+    [msg appendFormat:@"%@\n\n版本：%@\n磁盘占用：%@\n目录：\n%@\n\n",
+                     name, it[@"version"] ?: @"?", FormatSize(size), dir];
+
+    // 列出前 12 个顶层条目
+    NSArray *items = [NSFileManager.defaultManager contentsOfDirectoryAtPath:dir error:nil];
+    [msg appendFormat:@"顶层条目（%lu）：\n", (unsigned long)items.count];
+    for (NSUInteger i = 0; i < items.count && i < 12; i++) {
+        [msg appendFormat:@"• %@\n", items[i]];
+    }
+    if (items.count > 12) [msg appendString:@"…\n"];
+
+    // 尝试执行版本命令
+    NSDictionary *cmds = @{
+        @"codex": @"codex --version 2>&1 || ls bin 2>&1 | head -5",
+        @"python": @"python3 --version 2>&1",
+        @"node": @"node --version 2>&1",
+        @"theos": @"ls $THEOS/bin 2>&1 | head -5",
+        @"build_tools": @"cmake --version 2>&1 | head -2",
+        @"core_tools": @"git --version 2>&1",
+        @"reverse_tools": @"r2 -v 2>&1 | head -2",
+        @"ollvm": @"ls bin 2>&1 | head -5",
+    };
+    NSString *cmd = cmds[it[@"id"]];
+    if (cmd.length) {
+        NSString *full = [NSString stringWithFormat:@"PATH=%@/bin:$PATH; cd %@ && %@", dir, dir, cmd];
+        FILE *f = popen(full.UTF8String, "r");
+        if (f) {
+            char buf[512] = {0};
+            NSMutableString *out = [NSMutableString string];
+            while (fgets(buf, sizeof(buf), f)) [out appendString:[NSString stringWithUTF8String:buf] ?: @""];
+            pclose(f);
+            [msg appendFormat:@"\n执行结果：\n%@", out.length ? out : @"(无输出)"];
+        }
+    }
+    [self alert:msg];
+}
+
 - (void)alert:(NSString *)msg {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"GM Agent"
                                                              message:msg
@@ -376,10 +432,7 @@ static UIColor *TintColor(NSString *name) {
     if (ip.row >= items.count) return;
     NSDictionary *it = items[ip.row];
     if ([it[@"installed"] boolValue]) {
-        [self alert:[NSString stringWithFormat:@"%@ 已安装\n\n%@\n版本：%@",
-                     it[@"title"],
-                     it[@"summary"] ?: @"",
-                     it[@"version"] ?: @""]];
+        [self inspectInstalled:it];
         return;
     }
     [self installItem:it];

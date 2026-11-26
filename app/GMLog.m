@@ -4,12 +4,14 @@
 #include <time.h>
 
 NSString *GMLogPath(void) {
-    NSString *dir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *dir = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+    if (!dir.length) dir = NSTemporaryDirectory();
     return [dir stringByAppendingPathComponent:@"boot.log"];
 }
 
 NSString *GMLogEnginePath(void) {
-    NSString *dir = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES).firstObject;
+    NSString *dir = NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+    if (!dir.length) dir = NSTemporaryDirectory();
     return [dir stringByAppendingPathComponent:@"engine.log"];
 }
 
