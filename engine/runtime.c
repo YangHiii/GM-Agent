@@ -437,7 +437,56 @@ int gm_download_to_file(const char *url, const char *path,
             unlink(path);
             return -1;
         }
-        /* 完整性：已知 content-length 时必须完全一致，否则是断流 */
+
+        /* ① 重定向必须最先处理：3xx 响应通常没有 body，
+              若先判断 done==0 会误判成"内容为空"而中断。 */
+        if (resp.status == 301 || resp.status == 302 || resp.status == 303 ||
+            resp.status == 307 || resp.status == 308) {
+            const char *loc = resp.headers ? strstr(resp.headers, "ocation:") : NULL;
+            if (loc) {
+                loc += 9;
+                while (*loc == ' ') loc++;
+                const char *end = strstr(loc, "\r");
+                size_t n = end ? (size_t)(end - loc) : strlen(loc);
+                if (n > 0 && n < 4000) {
+                    char next[4096];
+                    memcpy(next, loc, n);
+                    next[n] = 0;
+                    if (strncmp(next, "http", 4) == 0) {
+                        snprintf(cur, sizeof(cur), "%s", next);
+                        continue;                 /* 跟随 */
+                    }
+                    /* 相对路径 */
+                    if (next[0] == '/') {
+                        /* 取当前 url 的 scheme+host */
+                        char base[512] = {0};
+                        const char *p2 = strstr(cur, "://");
+                        if (p2) {
+                            const char *slash = strchr(p2 + 3, '/');
+                            size_t blen = slash ? (size_t)(slash - cur) : strlen(cur);
+                            if (blen < sizeof(base)) {
+                                memcpy(base, cur, blen);
+                                base[blen] = 0;
+                                snprintf(cur, sizeof(cur), "%s%s", base, next);
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+            seterr(err, "HTTP %d 重定向但找不到 Location", resp.status);
+            unlink(path);
+            return -1;
+        }
+
+        /* ② 错误状态 */
+        if (resp.status >= 400) {
+            seterr(err, "服务器返回 HTTP %d", resp.status);
+            unlink(path);
+            return -1;
+        }
+
+        /* ③ 完整性：已知 content-length 必须完全一致 */
         if (resp.content_length > 0 && (long long)d.done != resp.content_length) {
             seterr(err, "下载不完整：期望 %lld 字节，实际收到 %lld 字节\n（网络中断，请重试）",
                    resp.content_length, (long long)d.done);
@@ -445,30 +494,8 @@ int gm_download_to_file(const char *url, const char *path,
             return -1;
         }
         if (d.done == 0) {
-            seterr(err, "下载内容为空（可能是重定向失败或服务器拒绝）");
+            seterr(err, "服务器返回空内容（HTTP %d，可能是地区限制或签名失效）", resp.status);
             unlink(path);
-            return -1;
-        }
-        if (resp.status == 301 || resp.status == 302 || resp.status == 307 || resp.status == 308) {
-            /* 从响应头取 Location */
-            const char *loc = resp.headers ? strstr(resp.headers, "ocation:") : NULL;
-            if (loc) {
-                loc += 9;
-                while (*loc == ' ') loc++;
-                const char *end = strstr(loc, "\r");
-                size_t n = end ? (size_t)(end - loc) : strlen(loc);
-                char next[1024];
-                if (n >= sizeof(next)) n = sizeof(next) - 1;
-                memcpy(next, loc, n);
-                next[n] = 0;
-                if (strncmp(next, "http", 4) == 0) {
-                    snprintf(cur, sizeof(cur), "%s", next);
-                    continue;
-                }
-            }
-        }
-        if (resp.status >= 400) {
-            seterr(err, "下载失败: HTTP %d", resp.status);
             return -1;
         }
         return 0;
