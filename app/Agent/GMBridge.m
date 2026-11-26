@@ -103,6 +103,12 @@ static void *engineThread(void *ctx) {
     setenv("GM_SESSION_DIR", sessDir.fileSystemRepresentation, 1);
     GMLog(@"会话目录: %@", sessDir);
 
+    NSString *codexHome = [cache stringByAppendingPathComponent:@"codex-home"];
+    [[NSFileManager defaultManager] createDirectoryAtPath:codexHome
+                              withIntermediateDirectories:YES attributes:nil error:nil];
+    setenv("GM_CODEX_HOME", codexHome.fileSystemRepresentation, 1);
+    GMLog(@"Codex 目录: %@", codexHome);
+
     NSString *engLog = [cache stringByAppendingPathComponent:@"engine.log"];
     setenv("GM_LOG_FILE", engLog.fileSystemRepresentation, 1);
     GMLog(@"引擎日志: %@", engLog);

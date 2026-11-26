@@ -152,6 +152,8 @@ static NSString *GMFriendlyError(NSString *raw) {
         tp[@"attributes"] = attrs;
         tp[@"text"] = trimmed;
         tp[@"model"] = self.model ?: @"";
+        NSString *eng = [ud stringForKey:@"gm.engine"];
+        if (eng.length) tp[@"engine"] = eng;
         NSString *b2 = [ud stringForKey:@"gm.baseURL"];
         NSString *k2 = [ud stringForKey:@"gm.apiKey"];
         if (b2.length) tp[@"baseURL"] = b2;

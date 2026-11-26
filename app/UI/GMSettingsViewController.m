@@ -10,6 +10,7 @@
 #import "GMCompileProtectViewController.h"
 #import "GMSkillsViewController.h"
 #import "GMDiagnosticsViewController.h"
+#import "GMBridge.h"
 
 static NSString *const kCell = @"gs";
 
@@ -57,6 +58,8 @@ static NSString *const kCell = @"gs";
         @[
             @{@"t": @"AI 账号", @"s": provider, @"icon": @"sparkles", @"tint": UIColor.systemBlueColor,
               @"act": @"ai"},
+            @{@"t": @"对话引擎", @"s": [self engineSummary], @"icon": @"cpu.fill",
+              @"tint": UIColor.systemIndigoColor, @"act": @"engine"},
             @{@"t": @"子代理", @"s": [self subagentSummary], @"icon": @"person.2.fill",
               @"tint": UIColor.systemOrangeColor, @"act": @"subagent"},
         ],
@@ -119,6 +122,57 @@ static NSString *const kCell = @"gs";
         CGRect gr = CGRectMake((size - gs.width) / 2, (size - gs.height) / 2, gs.width, gs.height);
         [[UIColor whiteColor] setFill];
         [glyph drawInRect:gr blendMode:kCGBlendModeNormal alpha:1.0];
+    }];
+}
+
+- (NSString *)engineSummary {
+    NSString *e = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.engine"];
+    return [e isEqualToString:@"codex"] ? @"Codex 运行时" : @"API 直连";
+}
+
+- (void)chooseEngine {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    NSString *cur = [d stringForKey:@"gm.engine"] ?: @"api";
+
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"对话引擎"
+                                                             message:@"API 直连：直接调模型接口，轻量稳定\nCodex 运行时：使用已安装的 Codex，具备完整工具链与子代理"
+                                                      preferredStyle:UIAlertControllerStyleActionSheet];
+    [a addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"API 直连%@",
+                                                 [cur isEqualToString:@"api"] ? @" ✓" : @""]
+                                          style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        [d setObject:@"api" forKey:@"gm.engine"];
+        [d synchronize];
+        [self buildGroups]; [self.tableView reloadData];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Codex 运行时%@",
+                                                 [cur isEqualToString:@"codex"] ? @" ✓" : @""]
+                                          style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        [self enableCodex];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    a.popoverPresentationController.sourceView = self.view;
+    a.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2, 200, 1, 1);
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+/// 检查 Codex 是否已安装，然后启用
+- (void)enableCodex {
+    [[GMBridge shared] call:@"gm/codex/status" params:nil reply:^(id result, NSError *e) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSDictionary *r = [result isKindOfClass:[NSDictionary class]] ? result : @{};
+            BOOL available = [r[@"available"] boolValue];
+            NSString *bin = r[@"binary"] ?: @"";
+            if (!available) {
+                [self alert:@"未检测到 Codex 运行时\n\n请先到「能力与工具 → 开发能力」安装 Codex。"];
+                return;
+            }
+            NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+            [d setObject:@"codex" forKey:@"gm.engine"];
+            [d synchronize];
+            [self buildGroups];
+            [self.tableView reloadData];
+            [self alert:[NSString stringWithFormat:@"已切换到 Codex 运行时\n\n%@\n\n首次对话会自动启动并握手（约 3-10 秒）。", bin]];
+        });
     }];
 }
 
@@ -205,6 +259,8 @@ static NSString *const kCell = @"gs";
         [self.navigationController pushViewController:[GMDevViewController new] animated:YES];
     } else if ([act isEqualToString:@"diag"]) {
         [self.navigationController pushViewController:[GMDiagnosticsViewController new] animated:YES];
+    } else if ([act isEqualToString:@"engine"]) {
+        [self chooseEngine];
     } else if ([act isEqualToString:@"subagent"]) {
         [self.navigationController pushViewController:[GMSubagentViewController new] animated:YES];
     } else if ([act isEqualToString:@"github"]) {

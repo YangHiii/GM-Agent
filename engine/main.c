@@ -7,6 +7,7 @@
  */
 #include "gm_engine.h"
 #include "runtime.h"
+#include "codex.h"
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -234,6 +235,26 @@ int gm_engine_main(int argc, char **argv) {
             out_write(res);
             gm_arena_free(&rb);
             free(err);
+        } else if (method && strcmp(method, "gm/codex/status") == 0) {
+            GMPVal *r = gm_val_obj(&g_turn);
+            gm_obj_set(&g_turn, r, "available", gm_val_true(&g_turn, gm_codex_available()));
+            gm_obj_set(&g_turn, r, "ready", gm_val_true(&g_turn, gm_codex_ready()));
+            char *bin = gm_codex_find_binary();
+            gm_obj_set(&g_turn, r, "binary", gm_val_str(&g_turn, bin ? bin : ""));
+            if (bin) free(bin);
+            reply(&g_turn, id, r, NULL);
+        } else if (method && strcmp(method, "gm/codex/start") == 0) {
+            char *e = NULL;
+            int rc = gm_codex_start(&e);
+            if (rc == 0) {
+                reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
+            } else {
+                reply(&g_turn, id, NULL, e ? e : "启动失败");
+                free(e);
+            }
+        } else if (method && strcmp(method, "gm/codex/stop") == 0) {
+            gm_codex_stop();
+            reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
         } else if (method && strcmp(method, "gm/tools/list") == 0) {
             reply(&g_turn, id, gm_tool_specs(&g_turn), NULL);
         } else if (method && strcmp(method, "gm/config") == 0) {
@@ -266,6 +287,43 @@ int gm_engine_main(int argc, char **argv) {
                 char tid[64];
                 snprintf(tid, sizeof(tid), "gm-%lld-%d", (long long)time(NULL), ++g_turn_counter);
                 g_session = gm_session_new(tid);
+            }
+
+            const char *eng = gm_str(gm_obj_get(params, "engine"));
+            if (eng && strcmp(eng, "codex") == 0) {
+                /* 走 Codex 运行时 */
+                if (!gm_codex_ready()) {
+                    char *ce = NULL;
+                    if (gm_codex_start(&ce) != 0) {
+                        reply(&g_turn, id, NULL, ce ? ce : "codex 启动失败");
+                        free(ce);
+                        continue;
+                    }
+                }
+                /* 用当前配置刷新 codex 的 config.toml */
+                gm_codex_write_config(g_prov.base_url, g_prov.api_key, g_prov.model, NULL);
+                setenv("GM_CODEX_API_KEY", g_prov.api_key, 1);
+
+                reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
+                gm_session_append_user(g_session, text ? text : "");
+
+                g_turnRunning = 1;
+                char *ce = NULL;
+                gm_codex_turn(g_session ? gm_session_id(g_session) : "", text ? text : "", &ce);
+                if (ce) {
+                    GMArena ea;
+                    gm_arena_init(&ea, 16384);
+                    GMPVal *r = gm_val_obj(&ea);
+                    GMPVal *p2 = gm_val_obj(&ea);
+                    gm_obj_set(&ea, p2, "message", gm_val_str(&ea, ce));
+                    gm_obj_set(&ea, r, "method", gm_val_str(&ea, "gm/event/error"));
+                    gm_obj_set(&ea, r, "params", p2);
+                    out_write(r);
+                    gm_arena_free(&ea);
+                    free(ce);
+                }
+                g_turnRunning = 0;
+                continue;
             }
 
             GMTurnJob *job = calloc(1, sizeof(GMTurnJob));
