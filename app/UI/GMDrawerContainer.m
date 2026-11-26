@@ -3,6 +3,9 @@
 #import "GMConversation.h"
 #import "GMSessionStore.h"
 #import "GMLog.h"
+#import "GMWorkspaceStore.h"
+#import "GMFilesViewController.h"
+#import <objc/runtime.h>
 #import "GMUsageViewController.h"
 
 static const CGFloat kSidebarRatio = 0.78;   // 侧边栏占屏宽比例
@@ -76,7 +79,9 @@ static const CGFloat kCorner = 24.0;
 @property (nonatomic, strong) UIButton *composeButton;
 @property (nonatomic, strong) UILabel *sectionLabel;
 @property (nonatomic, strong) UITableView *table;
-@property (nonatomic, strong) NSArray<GMSessionMeta *> *sessions;
+@property (nonatomic, strong) NSArray<GMWorkspace *> *workspaces;
+/// 每组的会话：@{@"ws": GMWorkspace, @"sessions": @[...]}
+@property (nonatomic, strong) NSArray<NSDictionary *> *groups;
 @property (nonatomic, strong) UIView *usageCard;
 @property (nonatomic, strong) UILabel *usageTitle;
 @property (nonatomic, strong) UILabel *usageSub;
@@ -306,7 +311,31 @@ static const CGFloat kCorner = 24.0;
 }
 
 - (void)reload {
-    self.sessions = [GMSessionStore shared].sessions;
+    self.workspaces = [GMWorkspaceStore shared].workspaces;
+    NSArray<GMSessionMeta *> *all = [GMSessionStore shared].sessions;
+    NSMutableArray<NSDictionary *> *groups = [NSMutableArray array];
+    for (GMWorkspace *w in self.workspaces) {
+        NSMutableArray *mine = [NSMutableArray array];
+        for (GMSessionMeta *m in all) {
+            if ([m.workspaceID isEqualToString:w.ident]) [mine addObject:m];
+        }
+        if (!mine.count && ![w.ident isEqualToString:[GMWorkspaceStore shared].active.ident ?: @""]) continue;
+        [groups addObject:@{@"ws": w, @"sessions": mine}];
+    }
+    /* 无归属的会话归到"未分组" */
+    NSMutableArray *orphan = [NSMutableArray array];
+    for (GMSessionMeta *m in all) {
+        BOOL found = NO;
+        for (GMWorkspace *w in self.workspaces) if ([m.workspaceID isEqualToString:w.ident]) { found = YES; break; }
+        if (!found) [orphan addObject:m];
+    }
+    if (orphan.count) {
+        GMWorkspace *w = [GMWorkspace new];
+        w.ident = @"";
+        w.name = @"未分组";
+        [groups addObject:@{@"ws": w, @"sessions": orphan}];
+    }
+    self.groups = groups;
     [self.table reloadData];
 
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
@@ -334,9 +363,19 @@ static const CGFloat kCorner = 24.0;
 
 - (void)newWorkspace {
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"新建项目"
-                                                            message:@"项目分组将在下一阶段开放，当前所有会话归入默认分组。"
+                                                            message:@"输入项目名称，随后选择工作目录"
                                                      preferredStyle:UIAlertControllerStyleAlert];
-    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *tf) { tf.placeholder = @"例如 JCC"; }];
+    [a addAction:[UIAlertAction actionWithTitle:@"下一步" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        NSString *name = a.textFields.firstObject.text;
+        GMFilesViewController *picker = [[GMFilesViewController alloc] initAsPicker:^(NSString *path) {
+            GMWorkspace *w = [[GMWorkspaceStore shared] addWorkspaceNamed:name path:path];
+            [[GMWorkspaceStore shared] activateWorkspace:w.ident];
+            [self reload];
+        }];
+        [self.navigationController pushViewController:picker animated:YES];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [self presentViewController:a animated:YES completion:nil];
 }
 
@@ -369,30 +408,69 @@ static const CGFloat kCorner = 24.0;
 
 #pragma mark - Table
 
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv {
+    return self.groups.count;
+}
+
+- (UIView *)tableView:(UITableView *)tv viewForHeaderInSection:(NSInteger)sec {
+    if (sec >= self.groups.count) return nil;
+    GMWorkspace *w = self.groups[sec][@"ws"];
+    NSArray *ss = self.groups[sec][@"sessions"];
+    UIView *h = [[UIView alloc] initWithFrame:CGRectMake(0, 0, tv.bounds.size.width, 32)];
+    h.backgroundColor = UIColor.clearColor;
+
+    UIImageView *icon = [[UIImageView alloc] initWithImage:[UIImage systemImageNamed:
+        w.ident.length ? @"folder.fill" : @"questionmark.folder"]];
+    icon.frame = CGRectMake(18, 8, 16, 16);
+    icon.tintColor = w.ident.length ? UIColor.systemBlueColor : UIColor.tertiaryLabelColor;
+    [h addSubview:icon];
+
+    UILabel *l = [[UILabel alloc] initWithFrame:CGRectMake(40, 4, tv.bounds.size.width - 90, 24)];
+    l.text = w.name;
+    l.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold];
+    l.textColor = UIColor.labelColor;
+    [h addSubview:l];
+
+    UILabel *cnt = [[UILabel alloc] initWithFrame:CGRectMake(tv.bounds.size.width - 44, 4, 28, 24)];
+    cnt.text = [NSString stringWithFormat:@"%lu", (unsigned long)ss.count];
+    cnt.font = [UIFont systemFontOfSize:12];
+    cnt.textColor = UIColor.tertiaryLabelColor;
+    cnt.textAlignment = NSTextAlignmentRight;
+    [h addSubview:cnt];
+    return h;
+}
+
+- (CGFloat)tableView:(UITableView *)tv heightForHeaderInSection:(NSInteger)s { return 32; }
+
+- (BOOL)tableView:(UITableView *)tv canEditRowAtIndexPath:(NSIndexPath *)ip { return YES; }
+
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
-    return self.sessions.count;
+    if (s >= self.groups.count) return 0;
+    return [self.groups[s][@"sessions"] count];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
     static NSString *cid = @"s";
     GMSidebarSessionCell *c = [tv dequeueReusableCellWithIdentifier:cid];
     if (!c) c = [[GMSidebarSessionCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:cid];
-    GMSessionMeta *m = self.sessions[ip.row];
+    GMSessionMeta *m = self.groups[ip.section][@"sessions"][ip.row];
     c.titleLabel.text = m.title;
     BOOL cur = [m.threadID isEqualToString:[[GMSessionStore shared] currentThreadID] ?: @""];
     c.dot.backgroundColor = cur ? UIColor.systemBlueColor : UIColor.tertiaryLabelColor;
     c.dot.hidden = !cur;
     c.titleLabel.textColor = cur ? UIColor.labelColor : UIColor.secondaryLabelColor;
-    c.moreButton.tag = ip.row;
+    objc_setAssociatedObject(c.moreButton, "ip", ip, OBJC_ASSOCIATION_RETAIN);
     [c.moreButton removeTarget:nil action:nil forControlEvents:UIControlEventAllEvents];
     [c.moreButton addTarget:self action:@selector(sessionMore:) forControlEvents:UIControlEventTouchUpInside];
     return c;
 }
 
 - (void)sessionMore:(UIButton *)b {
-    NSInteger idx = b.tag;
-    if (idx < 0 || idx >= self.sessions.count) return;
-    GMSessionMeta *m = self.sessions[idx];
+    NSIndexPath *ip = objc_getAssociatedObject(b, "ip");
+    if (!ip || ip.section >= self.groups.count) return;
+    NSArray *ss = self.groups[ip.section][@"sessions"];
+    if (ip.row >= ss.count) return;
+    GMSessionMeta *m = ss[ip.row];
     UIAlertController *a = [UIAlertController alertControllerWithTitle:m.title message:nil
                                                       preferredStyle:UIAlertControllerStyleActionSheet];
     [a addAction:[UIAlertAction actionWithTitle:@"删除会话" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *x) {
@@ -407,12 +485,18 @@ static const CGFloat kCorner = 24.0;
 
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
-    GMSessionMeta *m = self.sessions[ip.row];
+    if (ip.section >= self.groups.count) return;
+    NSArray *ss = self.groups[ip.section][@"sessions"];
+    if (ip.row >= ss.count) return;
+    GMSessionMeta *m = ss[ip.row];
     if (self.onSelectSession) self.onSelectSession(m.threadID);
 }
 
 - (UISwipeActionsConfiguration *)tableView:(UITableView *)tv trailingSwipeActionsConfigurationForRowAtIndexPath:(NSIndexPath *)ip {
-    GMSessionMeta *m = self.sessions[ip.row];
+    if (ip.section >= self.groups.count) return nil;
+    NSArray *ss = self.groups[ip.section][@"sessions"];
+    if (ip.row >= ss.count) return nil;
+    GMSessionMeta *m = ss[ip.row];
     UIContextualAction *del = [UIContextualAction contextualActionWithStyle:UIContextualActionStyleDestructive
                                                                       title:@"删除"
                                                                     handler:^(UIContextualAction *a, UIView *v, void (^done)(BOOL)) {

@@ -16,6 +16,7 @@
 #import "GMProviderListViewController.h"
 #import "GMProviderStore.h"
 #import "GMUsageViewController.h"
+#import "GMWorkspaceStore.h"
 
 static NSString *const kCell = @"gs";
 
@@ -66,6 +67,8 @@ static NSString *const kCell = @"gs";
         @[
             @{@"t": @"AI 账号", @"s": provider, @"icon": @"sparkles", @"tint": UIColor.systemBlueColor,
               @"act": @"ai"},
+            @{@"t": @"工作区", @"s": [self workspaceSummary], @"icon": @"folder.fill",
+              @"tint": UIColor.systemTealColor, @"act": @"workspace"},
             @{@"t": @"对话引擎", @"s": [self engineSummary], @"icon": @"cpu.fill",
               @"tint": UIColor.systemIndigoColor, @"act": @"engine"},
             @{@"t": @"子代理", @"s": [self subagentSummary], @"icon": @"person.2.fill",
@@ -135,6 +138,31 @@ static NSString *const kCell = @"gs";
         [[UIColor whiteColor] setFill];
         [glyph drawInRect:gr blendMode:kCGBlendModeNormal alpha:1.0];
     }];
+}
+
+- (NSString *)workspaceSummary {
+    GMWorkspace *w = [GMWorkspaceStore shared].active;
+    if (!w) return @"未设置";
+    return [NSString stringWithFormat:@"%@ · %@", w.name, w.path.lastPathComponent];
+}
+
+- (void)manageWorkspace {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"工作区"
+                                                            message:@"选择要切换到的项目"
+                                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    for (GMWorkspace *w in [GMWorkspaceStore shared].workspaces) {
+        BOOL cur = [w.ident isEqualToString:[GMWorkspaceStore shared].active.ident ?: @""];
+        [a addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"%@%@", w.name, cur ? @" ✓" : @""]
+                                              style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+            [[GMWorkspaceStore shared] activateWorkspace:w.ident];
+            [self buildGroups];
+            [self.tableView reloadData];
+        }]];
+    }
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    a.popoverPresentationController.sourceView = self.view;
+    a.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width/2, 200, 1, 1);
+    [self presentViewController:a animated:YES completion:nil];
 }
 
 - (NSString *)engineSummary {
@@ -299,6 +327,8 @@ static NSString *const kCell = @"gs";
         [self.navigationController pushViewController:[GMDevViewController new] animated:YES];
     } else if ([act isEqualToString:@"diag"]) {
         [self.navigationController pushViewController:[GMDiagnosticsViewController new] animated:YES];
+    } else if ([act isEqualToString:@"workspace"]) {
+        [self manageWorkspace];
     } else if ([act isEqualToString:@"engine"]) {
         [self chooseEngine];
     } else if ([act isEqualToString:@"subagent"]) {

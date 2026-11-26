@@ -107,6 +107,8 @@ static NSString *SkillsRoot(void) {
     } else if (ip.section == 2) {
         if (ip.row >= self.mcp.count) return c;
         c.textLabel.text = self.mcp[ip.row];
+        c.detailTextLabel.text = @"已配置（MCP 协议客户端将在后续版本接入）";
+        c.detailTextLabel.font = [UIFont systemFontOfSize:10];
     } else {
         if (ip.row >= self.plugins.count) return c;
         c.textLabel.text = self.plugins[ip.row];

@@ -7,6 +7,7 @@
         @"id": self.threadID ?: @"",
         @"title": self.title ?: @"",
         @"at": @([self.updatedAt timeIntervalSince1970]),
+        @"ws": self.workspaceID ?: @"",
     };
 }
 + (instancetype)fromDictionary:(NSDictionary *)d {
@@ -15,6 +16,7 @@
     m.threadID = d[@"id"];
     m.title = d[@"title"] ?: @"未命名";
     m.updatedAt = [NSDate dateWithTimeIntervalSince1970:[d[@"at"] doubleValue]];
+    m.workspaceID = d[@"ws"] ?: @"";
     return m.threadID.length ? m : nil;
 }
 @end
@@ -63,6 +65,7 @@
     long long ts = (long long)[NSDate.date timeIntervalSince1970];
     m.threadID = [NSString stringWithFormat:@"gm-%lld-%d", ts, arc4random_uniform(9000) + 1000];
     m.title = title.length ? title : @"新会话";
+    m.workspaceID = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.activeWorkspace"] ?: @"";
     m.updatedAt = [NSDate date];
     [_items insertObject:m atIndex:0];
     [self persist];

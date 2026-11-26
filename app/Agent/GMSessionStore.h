@@ -5,6 +5,7 @@
 @property (nonatomic, copy) NSString *threadID;
 @property (nonatomic, copy) NSString *title;
 @property (nonatomic, strong) NSDate *updatedAt;
+@property (nonatomic, copy) NSString *workspaceID;
 @end
 
 @interface GMSessionStore : NSObject

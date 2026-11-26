@@ -4,6 +4,7 @@
 #import "GMMessage.h"
 #import "GMLog.h"
 #import "GMSessionStore.h"
+#import "GMWorkspaceStore.h"
 
 @interface GMConversation ()
 @property (nonatomic, strong) GMBridge *bridge;
@@ -182,7 +183,13 @@ static NSString *GMFriendlyError(NSString *raw) {
         if (b2.length) tp[@"baseURL"] = b2;
         if (k2.length) tp[@"apiKey"] = k2;
         NSString *gi = [ud stringForKey:@"gm.globalInstruction"];
-        if (gi.length) tp[@"instruction"] = gi;
+        GMWorkspace *ws = [GMWorkspaceStore shared].active;
+        NSMutableString *inst = [NSMutableString string];
+        if (ws.name.length) [inst appendFormat:@"当前项目：%@\n工作目录：%@\n", ws.name, ws.path ?: @""];
+        if (ws.instruction.length) [inst appendFormat:@"\n【项目指令】\n%@\n", ws.instruction];
+        if (gi.length) [inst appendFormat:@"\n【全局指令】\n%@\n", gi];
+        if (inst.length) tp[@"instruction"] = inst;
+        if (ws.path.length) tp[@"cwd"] = ws.path;
 
         /* Skills：扫描目录，把每个 SKILL.md 的前 400 字拼给引擎 */
         NSString *skills = [self skillsSummaryForEngine];

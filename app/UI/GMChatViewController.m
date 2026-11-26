@@ -81,6 +81,7 @@
 @property (nonatomic, strong) NSLayoutConstraint *composerBottom;
 @property (nonatomic) BOOL generating;
 @property (nonatomic, strong) GMRingView *contextRing;
+@property (nonatomic, strong) NSMutableArray<NSString *> *pendingQueue;
 @property (nonatomic) NSTimeInterval lastReload;
 @property (nonatomic) NSInteger lastCount;
 @end
@@ -97,6 +98,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    self.pendingQueue = [NSMutableArray array];
     self.title = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.agentName"] ?: @"GM Agent";
 
     /* 副标题显示累计 token */
@@ -219,15 +221,29 @@
 }
 
 - (void)send {
-    if (self.generating) {
-        [self.conversation cancelCurrentTurn];
-        return;
-    }
-    NSString *text = self.input.text;
+    NSString *text = [self.input.text stringByTrimmingCharactersInSet:
+                      [NSCharacterSet whitespaceAndNewlineCharacterSet]];
     if (!text.length) return;
     self.input.text = @"";
-    [self.input resignFirstResponder];   /* 发送后收起键盘 */
+
+    /* 生成中 → 排队，不打断当前回合 */
+    if (self.generating) {
+        [self.pendingQueue addObject:text];
+        UIImpactFeedbackGenerator *h = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+        [h impactOccurred];
+        [self updateSendButton];
+        return;
+    }
+
+    [self.input resignFirstResponder];
     [self.conversation sendUserText:text];
+}
+
+- (void)flushPendingQueue {
+    if (self.generating || self.pendingQueue.count == 0) return;
+    NSString *next = self.pendingQueue.firstObject;
+    [self.pendingQueue removeObjectAtIndex:0];
+    [self.conversation sendUserText:next];
 }
 
 - (void)setupContextRing {
@@ -282,9 +298,15 @@
 }
 
 - (void)updateSendButton {
-    NSString *sym = self.generating ? @"stop.circle.fill" : @"arrow.up.circle.fill";
+    NSString *sym;
+    if (self.generating) {
+        sym = self.pendingQueue.count ? @"arrow.up.circle.fill" : @"stop.circle.fill";
+        self.sendButton.tintColor = self.pendingQueue.count ? UIColor.systemBlueColor : UIColor.systemRedColor;
+    } else {
+        sym = @"arrow.up.circle.fill";
+        self.sendButton.tintColor = UIColor.labelColor;
+    }
     [self.sendButton setImage:[UIImage systemImageNamed:sym] forState:UIControlStateNormal];
-    self.sendButton.tintColor = self.generating ? UIColor.systemRedColor : UIColor.labelColor;
 }
 
 - (void)newThread {
@@ -323,7 +345,13 @@
     _lastCount = conversation.messages.count;
 
     GMMessage *last = conversation.messages.lastObject;
+    BOOL wasGenerating = self.generating;
     self.generating = last.streaming;
+    if (wasGenerating && !self.generating) {
+        /* 回合结束：延迟一点再发下一条，避免 UI 抖动 */
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ [self flushPendingQueue]; });
+    }
     [self updateSendButton];
     [self updateTokenLabel];
     [self updateContextRing];

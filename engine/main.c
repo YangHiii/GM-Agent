@@ -375,6 +375,9 @@ int gm_engine_main(int argc, char **argv) {
                 continue;
             }
 
+            const char *cwd = gm_str(gm_obj_get(params, "cwd"));
+            if (cwd && *cwd) setenv("GM_CWD", cwd, 1);
+
             GMTurnJob *job = calloc(1, sizeof(GMTurnJob));
             if (!job) { reply(&g_turn, id, NULL, "内存不足"); continue; }
             gm_arena_init(&job->arena, ARENA_SIZE);

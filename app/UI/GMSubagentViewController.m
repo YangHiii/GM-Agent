@@ -1,6 +1,7 @@
 // GM Agent · 子代理设置：模型 / 思考强度
 #import "GMSubagentViewController.h"
 #import "GMBridge.h"
+#import "GMPlanViewController.h"
 
 @interface GMSubagentViewController ()
 @property (nonatomic, strong) UITableView *tableView;
@@ -9,6 +10,7 @@
 @property (nonatomic, copy) NSString *effortMode;    // follow | custom
 @property (nonatomic, copy) NSString *effort;
 @property (nonatomic, copy) NSString *lastOutput;
+@property (nonatomic, strong) GMPlanProgressViewController *planVC;
 @end
 
 @implementation GMSubagentViewController
@@ -184,6 +186,18 @@
     [a addAction:[UIAlertAction actionWithTitle:@"开始" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
         NSString *task = a.textFields.firstObject.text;
         if (!task.length) return;
+        /* 打开计划进度视图 */
+        GMPlanStep *s1 = [GMPlanStep new];
+        s1.title = @"分析任务"; s1.state = 1;
+        GMPlanStep *s2 = [GMPlanStep new];
+        s2.title = @"执行检索"; s2.state = 0;
+        GMPlanStep *s3 = [GMPlanStep new];
+        s3.title = @"汇总结果"; s3.state = 0;
+        GMPlanProgressViewController *pv =
+            [[GMPlanProgressViewController alloc] initWithTask:task steps:@[s1, s2, s3]];
+        self.planVC = pv;
+        [self.navigationController pushViewController:pv animated:YES];
+
         [[NSNotificationCenter defaultCenter] addObserver:self
                                                  selector:@selector(subagentEvent:)
                                                      name:@"gm.subagent" object:nil];
@@ -206,7 +220,20 @@
     if ([phase isEqualToString:@"done"]) {
         self.lastOutput = p[@"output"];
         [self.tableView reloadData];
-        [self alert:[NSString stringWithFormat:@"子代理完成：\n\n%@", p[@"output"] ?: @""]];
+        /* 更新计划：全部完成 */
+        if (self.planVC) {
+            NSMutableArray *steps = [NSMutableArray array];
+            for (NSString *t in @[@"分析任务", @"执行检索", @"汇总结果"]) {
+                GMPlanStep *st = [GMPlanStep new];
+                st.title = t; st.state = 2;
+                [steps addObject:st];
+            }
+            [self.planVC updateSteps:steps];
+        }
+        /* 展示结果页 */
+        GMPlanDecisionViewController *dv =
+            [[GMPlanDecisionViewController alloc] initWithTask:p[@"task"] output:p[@"output"]];
+        [self.navigationController pushViewController:dv animated:YES];
     } else if ([phase isEqualToString:@"error"]) {
         [self alert:[NSString stringWithFormat:@"子代理失败：%@", p[@"message"] ?: @""]];
     }
