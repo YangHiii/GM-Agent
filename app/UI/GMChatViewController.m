@@ -3,6 +3,8 @@
 #import "GMMessage.h"
 #import "GMSettingsViewController.h"
 #import "GMDevViewController.h"
+#import "GMSessionListViewController.h"
+#import "GMSessionStore.h"
 
 @interface GMChatCell : UITableViewCell
 @property (nonatomic, strong) UILabel *bodyLabel;
@@ -65,10 +67,10 @@
     self.title = @"GM Agent";
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithTitle:@"新会话"
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"list.bullet"]
                                          style:UIBarButtonItemStylePlain
                                         target:self
-                                        action:@selector(newThread)];
+                                        action:@selector(openSessions)];
     self.navigationItem.rightBarButtonItems = @[
         [[UIBarButtonItem alloc] initWithTitle:@"设置"
                                          style:UIBarButtonItemStylePlain
@@ -180,6 +182,11 @@
 
 - (void)newThread {
     [self.conversation newThread];
+}
+
+- (void)openSessions {
+    GMSessionListViewController *v = [[GMSessionListViewController alloc] initWithConversation:self.conversation];
+    [self.navigationController pushViewController:v animated:YES];
 }
 
 - (void)openDev {

@@ -84,6 +84,8 @@ GMSession *gm_session_new(const char *thread_id);
 void gm_session_free(GMSession *s);
 const char *gm_session_id(const GMSession *s);
 void gm_session_append(GMSession *s, const char *role, const char *text);
+GMPVal *gm_session_load_history(const char *thread_id, GMArena *a);
+int gm_session_exists(const char *thread_id);
 void gm_session_append_user(GMSession *s, const char *text);
 void gm_session_append_assistant(GMSession *s, const char *text);
 

@@ -24,6 +24,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)cancelCurrentTurn;
 - (void)newThread;
 - (void)pushConfigToEngine;
+- (void)loadThread:(NSString *)threadID;
+@property (nonatomic, readonly) NSString *currentThreadID;
 @end
 
 NS_ASSUME_NONNULL_END

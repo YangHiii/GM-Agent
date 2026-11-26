@@ -1,6 +1,7 @@
 /* GM Agent · 会话存储（JSONL 追加，历史读取用独立 arena） */
 #include "gm_engine.h"
 #include <sys/stat.h>
+#include <unistd.h>
 
 struct GMSession {
     char id[64];
@@ -31,6 +32,37 @@ GMSession *gm_session_new(const char *thread_id) {
 
 void gm_session_free(GMSession *s) { free(s); }
 const char *gm_session_id(const GMSession *s) { return s ? s->id : ""; }
+
+/* 读取 JSONL 历史，返回 {"role":..,"content":..} 数组（调用方管理 arena） */
+GMPVal *gm_session_load_history(const char *thread_id, GMArena *a) {
+    GMPVal *arr = gm_val_arr(a);
+    if (!thread_id || !*thread_id) return arr;
+    const char *home = getenv("HOME");
+    if (!home) home = "/var/mobile";
+    char path[600];
+    snprintf(path, sizeof(path), "%.480s/.gm/sessions/%.40s.jsonl", home, thread_id);
+    FILE *f = fopen(path, "r");
+    if (!f) return arr;
+    char line[8192];
+    while (fgets(line, sizeof(line), f)) {
+        size_t n = strlen(line);
+        while (n && (line[n-1] == '\n' || line[n-1] == '\r')) line[--n] = 0;
+        if (!n) continue;
+        GMPVal *v = gm_parse(a, line, n);
+        if (v && v->t == GM_OBJ) gm_arr_push(a, arr, v);
+    }
+    fclose(f);
+    return arr;
+}
+
+int gm_session_exists(const char *thread_id) {
+    if (!thread_id || !*thread_id) return 0;
+    const char *home = getenv("HOME");
+    if (!home) home = "/var/mobile";
+    char path[600];
+    snprintf(path, sizeof(path), "%.480s/.gm/sessions/%.40s.jsonl", home, thread_id);
+    return access(path, R_OK) == 0;
+}
 
 void gm_session_append(GMSession *s, const char *role, const char *text) {
     if (!s) return;

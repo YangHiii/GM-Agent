@@ -7,6 +7,7 @@
 #import "GMBridge.h"
 #import "GMConversation.h"
 #import "GMChatViewController.h"
+#import "GMSessionStore.h"
 
 #pragma mark - 全局状态（AppDelegate 与 SceneDelegate 共享）
 
@@ -55,6 +56,12 @@ static UIViewController *GMGLMakeRoot(void) {
     @try {
         GMChatViewController *chat = [[GMChatViewController alloc]
                                       initWithConversation:GMAppState.shared.conversation];
+        // 恢复上次会话
+        NSString *last = [GMSessionStore shared].currentThreadID;
+        if (last.length) {
+            GMLog(@"恢复会话 %@", last);
+            [GMAppState.shared.conversation loadThread:last];
+        }
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:chat];
         nav.navigationBar.prefersLargeTitles = NO;
         GMLog(@"root VC ready: %@", nav);

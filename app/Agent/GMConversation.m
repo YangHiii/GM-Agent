@@ -3,6 +3,7 @@
 #import "GMJSON.h"
 #import "GMMessage.h"
 #import "GMLog.h"
+#import "GMSessionStore.h"
 
 @interface GMConversation ()
 @property (nonatomic, strong) GMBridge *bridge;
@@ -29,6 +30,35 @@
 }
 
 - (NSArray<GMMessage *> *)messages { return _msgs.copy; }
+- (NSString *)currentThreadID { return self.threadID; }
+
+- (void)loadThread:(NSString *)threadID {
+    [_msgs removeAllObjects];
+    [_toolMessages removeAllObjects];
+    _pendingAssistant = nil;
+    self.threadID = threadID;
+    [[GMSessionStore shared] setCurrentThreadID:threadID];
+    if (!threadID.length) { [self.delegate conversationDidChange:self]; return; }
+
+    __weak typeof(self) wself = self;
+    [_bridge call:@"gm/thread/history" params:@{@"threadId": threadID} reply:^(id result, NSError *error) {
+        __strong typeof(wself) strongSelf = wself;
+        if (!strongSelf || error) { [strongSelf.delegate conversationDidChange:strongSelf]; return; }
+        NSArray *list = [result isKindOfClass:[NSDictionary class]] ? result[@"messages"] : nil;
+        for (NSDictionary *m in list) {
+            if (![m isKindOfClass:[NSDictionary class]]) continue;
+            NSString *role = m[@"role"];
+            NSString *content = m[@"content"];
+            if (![content isKindOfClass:[NSString class]]) continue;
+            if ([role isEqualToString:@"user"]) {
+                [strongSelf.msgs addObject:[GMMessage userText:content]];
+            } else if ([role isEqualToString:@"assistant"] && content.length) {
+                [strongSelf.msgs addObject:[GMMessage assistantText:content]];
+            }
+        }
+        [strongSelf.delegate conversationDidChange:strongSelf];
+    }];
+}
 
 // 首次使用：把设置页/内置默认配置推给引擎，否则引擎没有 key 必然 401
 - (void)pushConfigToEngine {
@@ -55,8 +85,33 @@
     [self.delegate conversationDidChange:self];
 }
 
+// 把引擎/HTTP 的英文错误转成可读提示
+static NSString *GMFriendlyError(NSString *raw) {
+    if (!raw.length) return @"未知错误";
+    if ([raw containsString:@"401"]) return @"API Key 无效或已过期\n\n请在「设置」重新填写 Key。";
+    if ([raw containsString:@"403"]) return @"访问被拒绝（403）\n\n可能是 Key 权限不足或地区限制。";
+    if ([raw containsString:@"404"]) return @"接口地址不存在（404）\n\n请检查网关地址是否含 /v1。";
+    if ([raw containsString:@"429"]) return @"请求过于频繁（429）\n\n请稍后再试，或检查账户额度。";
+    if ([raw containsString:@"500"] || [raw containsString:@"502"] || [raw containsString:@"503"])
+        return [NSString stringWithFormat:@"服务端异常\n\n%@", raw];
+    if ([raw containsString:@"model"]) {
+        return [NSString stringWithFormat:@"模型不可用\n\n%@\n\n请在「设置」点「模型」重新选择。", raw];
+    }
+    if ([raw containsString:@"DNS"] || [raw containsString:@"域名解析"])
+        return [NSString stringWithFormat:@"域名解析失败\n\n请检查网关地址，需形如\nhttps://api.deepseek.com/v1\n\n%@", raw];
+    if ([raw containsString:@"TLS"] || [raw containsString:@"SSL"])
+        return [NSString stringWithFormat:@"TLS 握手失败\n\n可能是网络被干扰，或网关不支持该协议。\n\n%@", raw];
+    if ([raw containsString:@"TCP"])
+        return [NSString stringWithFormat:@"无法连接服务器\n\n请检查网络与网关地址。\n\n%@", raw];
+    if ([raw containsString:@"没有可用的 shell"])
+        return @"找不到可执行 shell\n\n当前环境缺少 bash，请确认安装包完整。";
+    return raw;
+}
+
 - (void)_fail:(NSString *)msg {
-    dispatch_async(dispatch_get_main_queue(), ^{ [self.delegate conversation:self didFail:msg]; });
+    NSString *friendly = GMFriendlyError(msg);
+    GMLog(@"错误: %@", msg);
+    dispatch_async(dispatch_get_main_queue(), ^{ [self.delegate conversation:self didFail:friendly]; });
 }
 
 #pragma mark - 对外
@@ -68,6 +123,13 @@
 
     /* 每轮都重推配置：避免"设置没生效"这类问题 */
     [self configureEngineIfNeeded];
+
+    /* 首条消息作为会话标题 */
+    if (self.msgs.count == 1 && self.threadID.length) {
+        NSString *title = trimmed.length > 20 ? [trimmed substringToIndex:20] : trimmed;
+        [[GMSessionStore shared] updateSession:self.threadID title:title];
+    }
+    if (self.threadID.length) [[GMSessionStore shared] touchSession:self.threadID];
 
     NSMutableDictionary *attrs = [NSMutableDictionary dictionary];
     attrs[@"model"] = self.model ?: @"";
@@ -105,7 +167,9 @@
         startTurn(self.threadID);
         return;
     }
-    [self.bridge call:@"gm/thread/start" params:nil reply:^(id result, NSError *error) {
+    NSMutableDictionary *sp = [NSMutableDictionary dictionary];
+    if (self.threadID.length) sp[@"threadId"] = self.threadID;
+    [self.bridge call:@"gm/thread/start" params:(sp.count ? sp : nil) reply:^(id result, NSError *error) {
         __strong typeof(weakSelf) strongSelf = weakSelf;
         if (!strongSelf) return;
         if (error) { [strongSelf _fail:error.localizedDescription]; return; }
@@ -126,6 +190,7 @@
 
 - (void)newThread {
     _threadID = nil;
+    [[GMSessionStore shared] setCurrentThreadID:nil];
     [_msgs removeAllObjects];
     [_toolMessages removeAllObjects];
     _pendingAssistant = nil;

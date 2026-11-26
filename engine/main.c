@@ -158,13 +158,23 @@ int gm_engine_main(int argc, char **argv) {
             gm_obj_set(&g_turn, r, "configured", gm_val_true(&g_turn, g_prov.api_key[0] != 0));
             reply(&g_turn, id, r, NULL);
         } else if (method && strcmp(method, "gm/thread/start") == 0) {
+            const char *want = gm_str(gm_obj_get(params, "threadId"));
             char tid[64];
-            snprintf(tid, sizeof(tid), "gm-%lld-%d", (long long)time(NULL), ++g_turn_counter);
+            if (want && *want && gm_session_exists(want)) {
+                snprintf(tid, sizeof(tid), "%s", want);   /* 恢复已有会话 */
+            } else {
+                snprintf(tid, sizeof(tid), "gm-%lld-%d", (long long)time(NULL), ++g_turn_counter);
+            }
             g_session = gm_session_new(tid);
             GMPVal *r = gm_val_obj(&g_turn);
             GMPVal *t = gm_val_obj(&g_turn);
             gm_obj_set(&g_turn, t, "id", gm_val_str(&g_turn, tid));
             gm_obj_set(&g_turn, r, "thread", t);
+            reply(&g_turn, id, r, NULL);
+        } else if (method && strcmp(method, "gm/thread/history") == 0) {
+            const char *tid = gm_str(gm_obj_get(params, "threadId"));
+            GMPVal *r = gm_val_obj(&g_turn);
+            gm_obj_set(&g_turn, r, "messages", gm_session_load_history(tid, &g_turn));
             reply(&g_turn, id, r, NULL);
         } else if (method && strcmp(method, "gm/ping") == 0) {
             reply(&g_turn, id, gm_val_str(&g_turn, "pong"), NULL);
