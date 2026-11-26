@@ -8,69 +8,7 @@
 #import "GMMarkdown.h"
 #import "GMRingView.h"
 #import "GMUsageViewController.h"
-
-@interface GMChatCell : UITableViewCell
-@property (nonatomic, strong) UITextView *bodyView;
-@property (nonatomic, strong) UILabel *metaLabel;
-@property (nonatomic, strong) UIButton *codeCopyButton;
-@property (nonatomic, copy) void (^onCopy)(void);
-@end
-
-@implementation GMChatCell
-
-- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
-    if ((self = [super initWithStyle:UITableViewCellStyleDefault reuseIdentifier:reuseIdentifier])) {
-        self.backgroundColor = UIColor.clearColor;
-        self.selectionStyle = UITableViewCellSelectionStyleNone;
-        _bodyView = [UITextView new];
-        _bodyView.editable = NO;
-        _bodyView.scrollEnabled = NO;
-        _bodyView.selectable = YES;
-        _bodyView.backgroundColor = UIColor.clearColor;
-        _bodyView.textContainerInset = UIEdgeInsetsZero;
-        _bodyView.textContainer.lineFragmentPadding = 0;
-        _bodyView.translatesAutoresizingMaskIntoConstraints = NO;
-        _metaLabel = [UILabel new];
-        _metaLabel.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
-        _metaLabel.textColor = UIColor.secondaryLabelColor;
-        _metaLabel.numberOfLines = 0;
-        _metaLabel.translatesAutoresizingMaskIntoConstraints = NO;
-        [self.contentView addSubview:_metaLabel];
-        [self.contentView addSubview:_bodyView];
-
-        _codeCopyButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        _codeCopyButton.translatesAutoresizingMaskIntoConstraints = NO;
-        [_codeCopyButton setTitle:@"复制代码" forState:UIControlStateNormal];
-        _codeCopyButton.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-        _codeCopyButton.backgroundColor = UIColor.tertiarySystemFillColor;
-        _codeCopyButton.layer.cornerRadius = 6;
-        _codeCopyButton.contentEdgeInsets = UIEdgeInsetsMake(2, 8, 2, 8);
-        _codeCopyButton.hidden = YES;
-        [_codeCopyButton addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
-        [self.contentView addSubview:_codeCopyButton];
-        [NSLayoutConstraint activateConstraints:@[
-            [_metaLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:10],
-            [_metaLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
-            [_metaLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-16],
-            [_bodyView.topAnchor constraintEqualToAnchor:_metaLabel.bottomAnchor constant:4],
-            [_bodyView.leadingAnchor constraintEqualToAnchor:_metaLabel.leadingAnchor],
-            [_bodyView.trailingAnchor constraintEqualToAnchor:_metaLabel.trailingAnchor],
-            [_codeCopyButton.leadingAnchor constraintEqualToAnchor:_bodyView.leadingAnchor],
-            [_codeCopyButton.topAnchor constraintEqualToAnchor:_bodyView.bottomAnchor constant:6],
-            [_codeCopyButton.heightAnchor constraintEqualToConstant:24],
-            [_codeCopyButton.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
-        ]];
-    }
-    return self;
-}
-
-- (void)copyTapped { if (self.onCopy) self.onCopy(); }
-
-- (void)layoutSubviews {
-    [super layoutSubviews];
-}
-
-@end
+#import "GMChatCell.h"
 
 @interface GMChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextViewDelegate, GMConversationDelegate>
 @property (nonatomic, strong) GMConversation *conversation;
@@ -144,8 +82,7 @@
     _table.dataSource = self;
     _table.delegate = self;
     _table.separatorStyle = UITableViewCellSeparatorStyleNone;
-    _table.rowHeight = UITableViewAutomaticDimension;
-    _table.estimatedRowHeight = 72;
+    _table.rowHeight = 44;
     _table.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
     [_table registerClass:[GMChatCell class] forCellReuseIdentifier:@"cell"];
     [self.view addSubview:_table];
@@ -381,89 +318,39 @@
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
     GMChatCell *cell = [tableView dequeueReusableCellWithIdentifier:@"cell" forIndexPath:indexPath];
     NSArray<GMMessage *> *list = self.conversation.messages;
-    if (indexPath.row >= list.count) return cell;   /* 越界保护 */
+    if (indexPath.row >= list.count) return cell;
+
     GMMessage *m = list[indexPath.row];
-    switch (m.role) {
-        case GMRoleUser: {
-            cell.metaLabel.text = @"你";
-            cell.codeCopyButton.hidden = YES;
-            cell.onCopy = nil;
-            cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:m.text ?: @""
-                attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15],
-                             NSForegroundColorAttributeName: UIColor.labelColor}];
-            break;
-        }
-        case GMRoleTool: {
-            cell.metaLabel.text = [NSString stringWithFormat:@"工具 · %@", m.toolName ?: @"tool"];
-            NSString *body = m.toolSummary ?: @"";
-            cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:body
-                attributes:@{NSFontAttributeName: [UIFont monospacedSystemFontOfSize:11.5
-                                                                              weight:UIFontWeightRegular],
-                             NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}];
-            break;
-        }
-        case GMRoleSystem: {
-            cell.metaLabel.text = @"系统";
-            cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:m.text ?: @""
-                attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:13],
-                             NSForegroundColorAttributeName: UIColor.secondaryLabelColor}];
-            break;
-        }
-        default: {
-            cell.metaLabel.text = m.streaming ? @"GM Agent · 生成中…" : @"GM Agent";
-            BOOL simple = [[NSUserDefaults standardUserDefaults] boolForKey:@"gm.simpleDisplay"];
-            NSMutableAttributedString *body = [[NSMutableAttributedString alloc] init];
-
-            /* 思考过程：默认折叠为一行 */
-            if (m.reasoning.length && !simple) {
-                if (m.reasoningExpanded) {
-                    NSString *head = @"💭 思考过程（点此收起）\n";
-                    [body appendAttributedString:[[NSAttributedString alloc] initWithString:head
-                        attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12],
-                                     NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}]];
-                    [body appendAttributedString:[[NSAttributedString alloc] initWithString:
-                        [m.reasoning stringByAppendingString:@"\n────────\n"]
-                        attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12],
-                                     NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}]];
-                } else {
-                    NSString *fold = [NSString stringWithFormat:@"💭 思考过程（%lu 字，点此展开）\n\n",
-                                      (unsigned long)m.reasoning.length];
-                    [body appendAttributedString:[[NSAttributedString alloc] initWithString:fold
-                        attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:12],
-                                     NSForegroundColorAttributeName: UIColor.tertiaryLabelColor}]];
-                }
-            }
-
-            if (m.text.length) {
-                [body appendAttributedString:[GMMarkdown render:m.text]];
-            } else if (m.streaming) {
-                [body appendAttributedString:[[NSAttributedString alloc] initWithString:@"…"
-                    attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15],
-                                 NSForegroundColorAttributeName: UIColor.secondaryLabelColor}]];
-            }
-            cell.bodyView.attributedText = body;
-            /* 有代码块 → 显示"复制代码" */
-            NSArray<NSString *> *codes = [GMMarkdown extractCodeBlocks:m.text ?: @""];
-            if (codes.count > 0) {
-                cell.codeCopyButton.hidden = NO;
-                [cell.codeCopyButton setTitle:(codes.count == 1 ? @"复制代码" :
-                                          [NSString stringWithFormat:@"复制代码（%lu 段）", (unsigned long)codes.count])
-                                 forState:UIControlStateNormal];
-                NSArray<NSString *> *copied = codes;
-                cell.onCopy = ^{
-                    NSString *all = [copied componentsJoinedByString:@"\n\n"];
-                    [UIPasteboard generalPasteboard].string = all;
-                    UIImpactFeedbackGenerator *h = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-                    [h impactOccurred];
-                };
-            } else {
-                cell.codeCopyButton.hidden = YES;
-                cell.onCopy = nil;
-            }
-            break;
+    __weak typeof(self) w = self;
+    [cell configureWithMessage:m
+                         index:indexPath.row
+                        onCopy:^(GMChatCell *c) {
+        NSArray<NSString *> *codes = [GMMarkdown extractCodeBlocks:m.text ?: @""];
+        if (codes.count) {
+            [UIPasteboard generalPasteboard].string =
+                [codes componentsJoinedByString:@"\n\n"];
+            UIImpactFeedbackGenerator *h = [[UIImpactFeedbackGenerator alloc]
+                                            initWithStyle:UIImpactFeedbackStyleLight];
+            [h impactOccurred];
         }
     }
+                  onToggleTool:^(GMChatCell *c) {
+        m.toolExpanded = !m.toolExpanded;
+        [w.table reloadRowsAtIndexPaths:@[indexPath]
+                       withRowAnimation:UITableViewRowAnimationFade];
+    }
+             onToggleReasoning:^(GMChatCell *c) {
+        m.reasoningExpanded = !m.reasoningExpanded;
+        [w.table reloadRowsAtIndexPaths:@[indexPath]
+                       withRowAnimation:UITableViewRowAnimationFade];
+    }];
     return cell;
+}
+
+- (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
+    NSArray<GMMessage *> *list = self.conversation.messages;
+    if (indexPath.row >= list.count) return 44;
+    return [GMChatCell heightForMessage:list[indexPath.row] width:tableView.bounds.size.width];
 }
 
 @end
