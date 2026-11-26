@@ -8,6 +8,7 @@
 #include "gm_engine.h"
 #include "runtime.h"
 #include "codex.h"
+#include "theos.h"
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
@@ -269,6 +270,35 @@ int gm_engine_main(int argc, char **argv) {
             out_write(r2);
             gm_arena_free(&rb);
             free(sout); free(serr);
+        } else if (method && strcmp(method, "gm/theos/status") == 0) {
+            GMPVal *r = gm_val_obj(&g_turn);
+            gm_obj_set(&g_turn, r, "available", gm_val_true(&g_turn, gm_theos_available()));
+            char *root = gm_theos_root();
+            gm_obj_set(&g_turn, r, "root", gm_val_str(&g_turn, root ? root : ""));
+            if (root) free(root);
+            reply(&g_turn, id, r, NULL);
+        } else if (method && strcmp(method, "gm/theos/build") == 0) {
+            const char *path = gm_str(gm_obj_get(params, "path"));
+            const char *target = gm_str(gm_obj_get(params, "target"));
+            const char *arch = gm_str(gm_obj_get(params, "arch"));
+            const char *flags = gm_str(gm_obj_get(params, "flags"));
+            char *out = NULL, *err = NULL; int code = 0;
+            int rc = gm_theos_build(path, target, arch, flags, NULL, NULL, &out, &code, &err);
+            GMPVal *r = gm_val_obj(&g_turn);
+            gm_obj_set(&g_turn, r, "code", gm_val_num(&g_turn, code));
+            gm_obj_set(&g_turn, r, "output", gm_val_str(&g_turn, out ? out : ""));
+            if (err) gm_obj_set(&g_turn, r, "error", gm_val_str(&g_turn, err));
+            reply(&g_turn, id, r, rc == 0 ? NULL : (err ? err : "编译失败"));
+            free(out); free(err);
+        } else if (method && strcmp(method, "gm/theos/clean") == 0) {
+            const char *path = gm_str(gm_obj_get(params, "path"));
+            char *out = NULL, *err = NULL; int code = 0;
+            gm_theos_clean(path, &out, &code, &err);
+            GMPVal *r = gm_val_obj(&g_turn);
+            gm_obj_set(&g_turn, r, "code", gm_val_num(&g_turn, code));
+            gm_obj_set(&g_turn, r, "output", gm_val_str(&g_turn, out ? out : ""));
+            reply(&g_turn, id, r, NULL);
+            free(out); free(err);
         } else if (method && strcmp(method, "gm/codex/status") == 0) {
             GMPVal *r = gm_val_obj(&g_turn);
             gm_obj_set(&g_turn, r, "available", gm_val_true(&g_turn, gm_codex_available()));

@@ -17,6 +17,8 @@
 #import "GMProviderStore.h"
 #import "GMUsageViewController.h"
 #import "GMWorkspaceStore.h"
+#import "GMTheosViewController.h"
+#import "GMReverseViewController.h"
 
 static NSString *const kCell = @"gs";
 
@@ -93,6 +95,10 @@ static NSString *const kCell = @"gs";
         @[
             @{@"t": @"开发能力", @"s": @"Codex / Theos / 工具链",
               @"icon": @"terminal.fill", @"tint": UIColor.systemTealColor, @"act": @"dev"},
+            @{@"t": @"逆向工具", @"s": @"Mach-O 分析 / 签名检查", @"icon": @"wrench.and.screwdriver.fill",
+              @"tint": UIColor.systemPurpleColor, @"act": @"reverse"},
+            @{@"t": @"Theos 编译", @"s": @"编译打包 deb", @"icon": @"hammer.fill",
+              @"tint": UIColor.systemOrangeColor, @"act": @"theos"},
             @{@"t": @"编译保护", @"s": [self protectSummary], @"icon": @"shield.lefthalf.filled",
               @"tint": UIColor.systemPurpleColor, @"act": @"protect"},
             @{@"t": @"Skills 与扩展", @"s": [self skillsSummary], @"icon": @"puzzlepiece.fill",
@@ -340,6 +346,10 @@ static NSString *const kCell = @"gs";
         } else {
             [self.navigationController pushViewController:[GMGitHubViewController new] animated:YES];
         }
+    } else if ([act isEqualToString:@"reverse"]) {
+        [self.navigationController pushViewController:[GMReverseViewController new] animated:YES];
+    } else if ([act isEqualToString:@"theos"]) {
+        [self.navigationController pushViewController:[GMTheosViewController new] animated:YES];
     } else if ([act isEqualToString:@"protect"]) {
         [self.navigationController pushViewController:[GMCompileProtectViewController new] animated:YES];
     } else if ([act isEqualToString:@"skills"]) {

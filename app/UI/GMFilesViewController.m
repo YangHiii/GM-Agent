@@ -32,6 +32,7 @@
 
 - (void)viewDidLoad {
     [super viewDidLoad];
+    if (self.startPath.length) self.path = self.startPath;
     self.title = self.path.lastPathComponent.length ? self.path.lastPathComponent : @"/";
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
     if (self.pickerMode) {
