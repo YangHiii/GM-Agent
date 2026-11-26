@@ -147,6 +147,7 @@ static UIColor *TintColor(NSString *name) {
 #pragma mark - 控制器
 
 @interface GMDevViewController ()
+@property (nonatomic) BOOL skipVerifyOnce;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *coreItems;
 @property (nonatomic, strong) NSMutableArray<NSDictionary *> *toolItems;
@@ -292,16 +293,31 @@ static UIColor *TintColor(NSString *name) {
     self.note = [NSString stringWithFormat:@"正在安装 %@…", self.installing];
     [self.tableView reloadData];
     GMLog(@"安装运行时 %@", self.installing);
-    [[GMBridge shared] call:@"gm/runtime/install"
-                     params:@{@"name": item[@"id"],
-                              @"url": item[@"url"],
-                              @"sha256": item[@"sha"] ?: @""}
-                      reply:^(id r, NSError *e) {
-        if (!e) return;
+    NSDictionary *params = @{
+        @"name": item[@"id"] ?: @"",
+        @"url": item[@"url"] ?: @"",
+        @"sha256": item[@"sha"] ?: @"",
+        @"expectSize": item[@"size"] ?: @0,
+        @"skipVerify": @(self.skipVerifyOnce ? 1 : 0)
+    };
+    __weak typeof(self) w = self;
+    [[GMBridge shared] call:@"gm/runtime/install" params:params reply:^(id r, NSError *e) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            self.installing = nil;
-            self.note = [NSString stringWithFormat:@"安装失败：%@", e.localizedDescription];
-            [self.tableView reloadData];
+            w.installing = nil;
+            if (!e) {
+                w.note = [NSString stringWithFormat:@"%@ 安装完成", item[@"title"]];
+                w.skipVerifyOnce = NO;
+                [w.tableView reloadData];
+                return;
+            }
+            NSString *msg = e.localizedDescription ?: @"未知错误";
+            w.note = [NSString stringWithFormat:@"安装失败：%@", msg];
+            [w.tableView reloadData];
+            if ([msg containsString:@"SHA256"]) {
+                [w offerSkipVerify:item message:msg];
+            } else {
+                [w alert:msg];
+            }
         });
     }];
 }

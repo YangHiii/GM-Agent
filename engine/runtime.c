@@ -434,6 +434,19 @@ int gm_download_to_file(const char *url, const char *path,
         fclose(f);
         if (rc != 0) {
             seterr(err, "下载失败: %s", resp.error);
+            unlink(path);
+            return -1;
+        }
+        /* 完整性：已知 content-length 时必须完全一致，否则是断流 */
+        if (resp.content_length > 0 && (long long)d.done != resp.content_length) {
+            seterr(err, "下载不完整：期望 %lld 字节，实际收到 %lld 字节\n（网络中断，请重试）",
+                   resp.content_length, (long long)d.done);
+            unlink(path);
+            return -1;
+        }
+        if (d.done == 0) {
+            seterr(err, "下载内容为空（可能是重定向失败或服务器拒绝）");
+            unlink(path);
             return -1;
         }
         if (resp.status == 301 || resp.status == 302 || resp.status == 307 || resp.status == 308) {
@@ -466,8 +479,9 @@ int gm_download_to_file(const char *url, const char *path,
 
 /* ---------- 一步安装 ---------- */
 
-int gm_runtime_install(const char *url, const char *sha256, const char *destDir,
-                       GMRuntimeProgressFn cb, void *ctx, char **err) {
+int gm_runtime_install_ex(const char *url, const char *sha256, const char *destDir,
+                          long long expect_size, int skip_verify,
+                          GMRuntimeProgressFn cb, void *ctx, char **err) {
     char tmppath[700];
     snprintf(tmppath, sizeof(tmppath), "%s.gmdownload", destDir);
     mkdir_p(destDir);
@@ -475,7 +489,17 @@ int gm_runtime_install(const char *url, const char *sha256, const char *destDir,
     fprintf(stderr, "[gm] download %s\n", url);
     if (gm_download_to_file(url, tmppath, cb, ctx, err) != 0) return -1;
 
-    if (sha256 && strlen(sha256) == 64) {
+    /* 先比大小（最快发现下载不完整） */
+    struct stat st;
+    if (expect_size > 0 && stat(tmppath, &st) == 0 && st.st_size != expect_size) {
+        seterr(err, "文件大小不符%s\n期望 %lld 字节\n实际 %lld 字节\n\n下载可能被中断，请重试。",
+               skip_verify ? "（已忽略校验但仍不完整）" : "",
+               expect_size, (long long)st.st_size);
+        unlink(tmppath);
+        return -1;
+    }
+
+    if (!skip_verify && sha256 && strlen(sha256) == 64) {
         char got[65];
         if (gm_sha256_file(tmppath, got) != 0) {
             seterr(err, "无法计算校验和");
@@ -483,11 +507,19 @@ int gm_runtime_install(const char *url, const char *sha256, const char *destDir,
             return -1;
         }
         if (strcasecmp(got, sha256) != 0) {
-            seterr(err, "SHA256 校验失败\n期望 %s\n实际 %s", sha256, got);
+            /* 分行显示，避免 UI 截断 */
+            seterr(err,
+                   "SHA256 校验失败\n\n"
+                   "期望:\n%.32s\n%.32s\n\n"
+                   "实际:\n%.32s\n%.32s\n\n"
+                   "多半是源文件已更新而清单未同步。\n可选择「忽略校验强制安装」。",
+                   sha256, sha256 + 32, got, got + 32);
             unlink(tmppath);
             return -1;
         }
         fprintf(stderr, "[gm] sha256 ok\n");
+    } else if (skip_verify) {
+        fprintf(stderr, "[gm] 跳过 SHA256 校验（用户选择）\n");
     }
 
     int rc;
@@ -498,4 +530,9 @@ int gm_runtime_install(const char *url, const char *sha256, const char *destDir,
     }
     unlink(tmppath);
     return rc;
+}
+
+int gm_runtime_install(const char *url, const char *sha256, const char *destDir,
+                       GMRuntimeProgressFn cb, void *ctx, char **err) {
+    return gm_runtime_install_ex(url, sha256, destDir, 0, 0, cb, ctx, err);
 }

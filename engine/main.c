@@ -200,6 +200,8 @@ int gm_engine_main(int argc, char **argv) {
         } else if (method && strcmp(method, "gm/runtime/install") == 0) {
             const char *url = gm_str(gm_obj_get(params, "url"));
             const char *sha = gm_str(gm_obj_get(params, "sha256"));
+            GMPVal *sv = gm_obj_get(params, "expectSize");
+            GMPVal *skip = gm_obj_get(params, "skipVerify");
             const char *name = gm_str(gm_obj_get(params, "name"));
             const char *root = getenv("GM_RUNTIME_DIR");
             char dest[1024];

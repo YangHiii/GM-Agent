@@ -99,7 +99,7 @@ workflows:
           /usr/libexec/PlistBuddy -c "Print :UIApplicationSceneManifest" "$APP/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist" | tee /tmp/ver.txt
           V=$(cat /tmp/ver.txt | tr -d ' ')
-          test "$V" = "210" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
+          test "$V" = "211" || { echo "!! CFBundleVersion 不是 100，说明 plist 没更新"; exit 1; }
           # 自检：可执行文件必须在，且是 arm64
           test -x "$APP/GMAgent"
           test -s "$APP/libgm-engine.dylib"

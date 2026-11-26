@@ -26,4 +26,9 @@ int gm_download_to_file(const char *url, const char *path,
 int gm_runtime_install(const char *url, const char *sha256, const char *destDir,
                        GMRuntimeProgressFn cb, void *ctx, char **err);
 
+/* 扩展：支持大小校验与跳过 SHA256 */
+int gm_runtime_install_ex(const char *url, const char *sha256, const char *destDir,
+                          long long expect_size, int skip_verify,
+                          GMRuntimeProgressFn cb, void *ctx, char **err);
+
 #endif
