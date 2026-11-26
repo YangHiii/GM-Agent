@@ -6,7 +6,6 @@ static NSString *const kRateURL = @"https://api.frankfurter.dev/v2/rate/usd/cny"
 
 @implementation GMUsageViewController {
     UITableView *_table;
-    NSArray<NSArray<NSString *>> *_rows;
     double _rate;            // USD -> CNY
     double _todayCost;
     double _totalCost;
