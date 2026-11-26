@@ -3,6 +3,7 @@
 #import "GMAIAccountViewController.h"
 #import <Security/Security.h>
 #import "GMLog.h"
+#import "GMProviderStore.h"
 
 static NSString *const kKCService = @"app.gm.agent";
 static NSString *const kKCAccount = @"provider.apikey";
@@ -42,13 +43,28 @@ static NSString *kcGet(void) {
 @property (nonatomic, strong) NSArray<NSString *> *models;
 @property (nonatomic) BOOL loadingModels;
 @property (nonatomic, copy) NSString *statusText;
+@property (nonatomic, copy) NSString *providerIdent;
 @end
 
 @implementation GMAIAccountViewController
 
 - (instancetype)initWithConversation:(GMConversation *)conversation {
-    if ((self = [super initWithNibName:nil bundle:nil])) _conversation = conversation;
+    return [self initWithConversation:conversation providerIdent:nil];
+}
+
+- (instancetype)initWithConversation:(GMConversation *)conversation providerIdent:(NSString *)ident {
+    if ((self = [super initWithNibName:nil bundle:nil])) {
+        _conversation = conversation;
+        _providerIdent = [ident copy];
+    }
     return self;
+}
+
+- (GMProviderRecord *)currentProvider {
+    if (!self.providerIdent.length) return nil;
+    for (GMProviderRecord *r in [GMProviderStore shared].providers)
+        if ([r.ident isEqualToString:self.providerIdent]) return r;
+    return nil;
 }
 
 - (void)viewDidLoad {
@@ -60,7 +76,9 @@ static NSString *kcGet(void) {
                                         target:self action:@selector(save)];
 
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    NSString *saved = [d stringForKey:@"gm.baseURL"];
+    GMProviderRecord *prov = [self currentProvider];
+    NSString *saved = prov.baseURL.length ? prov.baseURL : [d stringForKey:@"gm.baseURL"];
+    if (prov.name.length) self.title = prov.name;
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -75,7 +93,7 @@ static NSString *kcGet(void) {
     [self.urlField addTarget:self action:@selector(urlChanged) forControlEvents:UIControlEventEditingDidEnd];
 
     self.keyField = [self makeField:@"sk-…" secure:YES];
-    self.keyField.text = kcGet();
+    self.keyField.text = prov.apiKey.length ? prov.apiKey : kcGet();
     // 键盘上浮板：粘贴按钮，方便直接贴 key
     UIToolbar *bar = [[UIToolbar alloc] initWithFrame:CGRectMake(0, 0, 320, 44)];
     bar.items = @[
@@ -107,7 +125,7 @@ static NSString *kcGet(void) {
     tap.cancelsTouchesInView = NO;
     [self.tableView addGestureRecognizer:tap];
 
-    self.model = [d stringForKey:@"gm.model"] ?: @"";
+    self.model = prov.model.length ? prov.model : ([d stringForKey:@"gm.model"] ?: @"");
     self.models = @[];
     if (self.urlField.text.length && self.model.length) {
         [self fetchModelsQuietly];
@@ -490,13 +508,32 @@ static NSString *kcGet(void) {
     [d setObject:[self chatURL] forKey:@"gm.baseURL"];
     [d setObject:url forKey:@"gm.baseRoot"];
     [d setObject:self.model forKey:@"gm.model"];
-    [d setObject:key forKey:@"gm.apiKey"];
-    {
-        NSURL *u = [NSURL URLWithString:[self chatURL]];
-        if (u.host.length) [d setObject:u.host forKey:@"gm.providerName"];
+    /* 写回供应商存储（多供应商模式） */
+    GMProviderRecord *prov = [self currentProvider];
+    if (prov) {
+        prov.baseURL = [self chatURL];
+        prov.apiKey = key;
+        prov.model = self.model;
+        if (!prov.name.length) {
+            NSURL *u = [NSURL URLWithString:prov.baseURL];
+            if (u.host.length) prov.name = u.host;
+        }
+        prov.active = YES;
+        prov.modelsJSON = self.models.count ? ({
+            NSData *dd = [NSJSONSerialization dataWithJSONObject:self.models options:0 error:nil];
+            [[NSString alloc] initWithData:dd encoding:NSUTF8StringEncoding];
+        }) : @"[]";
+        [[GMProviderStore shared] updateProvider:prov];
+        [[GMProviderStore shared] activateProvider:prov.ident];
+    } else {
+        [d setObject:key forKey:@"gm.apiKey"];
+        {
+            NSURL *u = [NSURL URLWithString:[self chatURL]];
+            if (u.host.length) [d setObject:u.host forKey:@"gm.providerName"];
+        }
+        [d synchronize];
+        kcSet(key);
     }
-    [d synchronize];
-    kcSet(key);
 
     self.conversation.model = self.model;
     [self.conversation pushConfigToEngine];

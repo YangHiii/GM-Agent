@@ -176,7 +176,7 @@ static NSString *GMFriendlyError(NSString *raw) {
         tp[@"text"] = trimmed;
         tp[@"model"] = self.model ?: @"";
         NSString *eng = [ud stringForKey:@"gm.engine"];
-        if (eng.length) tp[@"engine"] = eng;
+        tp[@"engine"] = eng.length ? eng : @"auto";   /* 默认自动选择通道 */
         NSString *b2 = [ud stringForKey:@"gm.baseURL"];
         NSString *k2 = [ud stringForKey:@"gm.apiKey"];
         if (b2.length) tp[@"baseURL"] = b2;

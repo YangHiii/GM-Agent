@@ -8,6 +8,7 @@
 #import "GMConversation.h"
 #import "GMChatViewController.h"
 #import "GMSessionStore.h"
+#import "GMDrawerContainer.h"
 
 #pragma mark - 全局状态（AppDelegate 与 SceneDelegate 共享）
 
@@ -56,7 +57,6 @@ static UIViewController *GMGLMakeRoot(void) {
     @try {
         GMChatViewController *chat = [[GMChatViewController alloc]
                                       initWithConversation:GMAppState.shared.conversation];
-        // 恢复上次会话
         NSString *last = [GMSessionStore shared].currentThreadID;
         if (last.length) {
             GMLog(@"恢复会话 %@", last);
@@ -64,8 +64,13 @@ static UIViewController *GMGLMakeRoot(void) {
         }
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:chat];
         nav.navigationBar.prefersLargeTitles = NO;
-        GMLog(@"root VC ready: %@", nav);
-        return nav;
+
+        GMSidebarViewController *sidebar = [GMSidebarViewController new];
+        sidebar.conversation = GMAppState.shared.conversation;
+
+        GMDrawerContainer *drawer = [[GMDrawerContainer alloc] initWithContent:nav sidebar:sidebar];
+        GMLog(@"root VC ready: drawer");
+        return drawer;
     } @catch (NSException *e) {
         GMLog(@"根视图构造失败: %@ %@", e.name, e.reason);
         return [GMSplashViewController new];

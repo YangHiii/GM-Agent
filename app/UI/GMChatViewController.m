@@ -94,10 +94,13 @@
     [self updateTokenLabel];
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     self.navigationItem.leftBarButtonItem =
-        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"list.bullet"]
+        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"]
                                          style:UIBarButtonItemStylePlain
                                         target:self
-                                        action:@selector(openSessions)];
+                                        action:@selector(toggleSidebar)];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(openSettings)
+                                              name:@"gm.openSettings" object:nil];
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"gearshape"]
                                          style:UIBarButtonItemStylePlain
@@ -214,6 +217,10 @@
 
 - (void)newThread {
     [self.conversation newThread];
+}
+
+- (void)toggleSidebar {
+    [NSNotificationCenter.defaultCenter postNotificationName:@"gm.toggleDrawer" object:nil];
 }
 
 - (void)openSessions {

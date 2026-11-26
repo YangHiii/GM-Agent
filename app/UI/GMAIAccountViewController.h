@@ -3,5 +3,8 @@
 #import "GMConversation.h"
 
 @interface GMAIAccountViewController : UIViewController <UITableViewDataSource, UITableViewDelegate, UITextFieldDelegate>
+@property (nonatomic, strong) UITableView *tableView;
 - (instancetype)initWithConversation:(GMConversation *)conversation;
+- (instancetype)initWithConversation:(GMConversation *)conversation
+                       providerIdent:(NSString *)ident;
 @end

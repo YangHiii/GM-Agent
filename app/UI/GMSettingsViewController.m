@@ -13,6 +13,8 @@
 #import "GMBridge.h"
 #import "GMFilesViewController.h"
 #import "GMGitHubReposViewController.h"
+#import "GMProviderListViewController.h"
+#import "GMProviderStore.h"
 
 static NSString *const kCell = @"gs";
 
@@ -50,7 +52,10 @@ static NSString *const kCell = @"gs";
 
 - (void)buildGroups {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    NSString *provider = [d stringForKey:@"gm.providerName"] ?: ([d stringForKey:@"gm.baseURL"] ?: @"未配置");
+    GMProviderRecord *actProv = [GMProviderStore shared].active;
+    NSString *provider = actProv
+        ? [NSString stringWithFormat:@"%@ · %@", actProv.name ?: actProv.ident, actProv.model ?: @"未选模型"]
+        : ([d stringForKey:@"gm.providerName"] ?: @"未配置");
     NSString *agentName = [d stringForKey:@"gm.agentName"] ?: @"GM Agent";
     NSInteger appearance = [d integerForKey:@"gm.appearance"];      // 0 系统 1 浅色 2 深色
     BOOL simple = [d boolForKey:@"gm.simpleDisplay"];
@@ -130,17 +135,29 @@ static NSString *const kCell = @"gs";
 }
 
 - (NSString *)engineSummary {
-    NSString *e = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.engine"];
-    return [e isEqualToString:@"codex"] ? @"Codex 运行时" : @"API 直连";
+    NSString *e = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.engine"] ?: @"auto";
+    NSString *model = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.model"] ?: @"";
+    if ([e isEqualToString:@"codex"]) return @"Codex 运行时（手动）";
+    if ([e isEqualToString:@"api"]) return @"API 直连（手动）";
+    /* auto：猜当前会走哪条 */
+    BOOL openai = [model hasPrefix:@"gpt-5"] || [model hasPrefix:@"gpt-6"];
+    return openai ? @"自动 · OpenAI 走 Codex" : @"自动 · 第三方走 API";
 }
 
 - (void)chooseEngine {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    NSString *cur = [d stringForKey:@"gm.engine"] ?: @"api";
+    NSString *cur = [d stringForKey:@"gm.engine"] ?: @"auto";
 
     UIAlertController *a = [UIAlertController alertControllerWithTitle:@"对话引擎"
                                                              message:@"API 直连：直接调模型接口，轻量稳定\nCodex 运行时：使用已安装的 Codex，具备完整工具链与子代理"
                                                       preferredStyle:UIAlertControllerStyleActionSheet];
+    [a addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"自动（推荐）%@",
+                                                 [cur isEqualToString:@"auto"] ? @" ✓" : @""]
+                                          style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        [d setObject:@"auto" forKey:@"gm.engine"];
+        [d synchronize];
+        [self buildGroups]; [self.tableView reloadData];
+    }]];
     [a addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"API 直连%@",
                                                  [cur isEqualToString:@"api"] ? @" ✓" : @""]
                                           style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
@@ -257,8 +274,16 @@ static NSString *const kCell = @"gs";
     NSString *act = row[@"act"];
 
     if ([act isEqualToString:@"ai"]) {
-        [self.navigationController pushViewController:
-            [[GMAIAccountViewController alloc] initWithConversation:self.conversation] animated:YES];
+        GMProviderRecord *act0 = [GMProviderStore shared].active;
+        if ([[GMProviderStore shared].providers count] <= 1 && act0) {
+            /* 只有一个供应商：直接进详情 */
+            [self.navigationController pushViewController:
+                [[GMAIAccountViewController alloc] initWithConversation:self.conversation
+                                                          providerIdent:act0.ident] animated:YES];
+        } else {
+            [self.navigationController pushViewController:
+                [[GMProviderListViewController alloc] initWithConversation:self.conversation] animated:YES];
+        }
     } else if ([act isEqualToString:@"dev"]) {
         [self.navigationController pushViewController:[GMDevViewController new] animated:YES];
     } else if ([act isEqualToString:@"diag"]) {

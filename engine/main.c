@@ -324,6 +324,21 @@ int gm_engine_main(int argc, char **argv) {
             }
 
             const char *eng = gm_str(gm_obj_get(params, "engine"));
+            /* auto：按供应商能力自动选择（对齐 MT 的 CAModelCapabilityClassifier） */
+            if (eng && strcmp(eng, "auto") == 0) {
+                int wantCodex = 0;
+                if (strstr(g_prov.base_url, "api.openai.com")) wantCodex = 1;
+                if (strstr(g_prov.base_url, "/responses")) wantCodex = 1;
+                if (strncmp(g_prov.model, "gpt-5", 5) == 0) wantCodex = 1;
+                if (strncmp(g_prov.model, "gpt-6", 5) == 0) wantCodex = 1;
+                if (wantCodex && gm_codex_available()) {
+                    eng = "codex";
+                    gm_logf("auto → codex (model=%s)", g_prov.model);
+                } else {
+                    eng = "api";
+                    gm_logf("auto → api (model=%s, codex=%d)", g_prov.model, gm_codex_available());
+                }
+            }
             if (eng && strcmp(eng, "codex") == 0) {
                 /* 走 Codex 运行时 */
                 if (!gm_codex_ready()) {
