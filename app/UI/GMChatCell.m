@@ -276,11 +276,13 @@ static UIColor *GMUserBubbleColor(void) {
         NSString *body = m.toolSummary ?: @"";
         CGFloat h = 10 + 18 + 3;
         if (m.toolExpanded) {
+            NSDictionary *attrs = @{NSFontAttributeName:
+                [UIFont monospacedSystemFontOfSize:10.5 weight:UIFontWeightRegular]};
             CGRect r = [body boundingRectWithSize:CGSizeMake(contentWidth - 24, CGFLOAT_MAX)
                                           options:NSStringDrawingUsesLineFragmentOrigin
-                                       attributes:@{NSFontAttributeName: [UIFont monospacedSystemFontOfSize:10.5]}
+                                       attributes:attrs
                                           context:nil];
-            h += r.height;
+            h += CGRectGetHeight(r);
         } else {
             h += 16;
         }
@@ -297,12 +299,12 @@ static UIColor *GMUserBubbleColor(void) {
         }
     }
     [attr appendAttributedString:[GMMarkdown render:m.text ?: @"…"]];
-    CGRect r = [attr boundingRectWithSize:CGSizeMake(contentWidth, CGFLOAT_MAX)
-                                  options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
-                                  context:nil];
+    CGRect rect = [attr boundingRectWithSize:CGSizeMake(contentWidth, CGFLOAT_MAX)
+                                     options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingUsesFontLeading
+                                     context:nil];
     CGFloat extra = 12 + 16 + 4 + 10;   /* meta + padding */
     if (m.role == GMRoleAssistant && [[GMMarkdown extractCodeBlocks:m.text ?: @""] count] > 0) extra += 30;
-    return MAX(44, ceil(r.height) + extra);
+    return MAX(44, ceil(CGRectGetHeight(rect)) + extra);
 }
 
 - (void)prepareForReuse {
