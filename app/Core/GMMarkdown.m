@@ -89,6 +89,27 @@ static const CGFloat kCodeSize = 12.5;
     return out;
 }
 
++ (NSArray<NSString *> *)extractCodeBlocks:(NSString *)markdown {
+    NSMutableArray *out = [NSMutableArray array];
+    if (!markdown.length) return out;
+    NSArray *lines = [markdown componentsSeparatedByString:@"\n"];
+    NSMutableArray *cur = nil;
+    for (NSString *line in lines) {
+        if ([line hasPrefix:@"```"]) {
+            if (cur) {
+                [out addObject:[cur componentsJoinedByString:@"\n"]];
+                cur = nil;
+            } else {
+                cur = [NSMutableArray array];
+            }
+            continue;
+        }
+        if (cur) [cur addObject:line];
+    }
+    if (cur.count) [out addObject:[cur componentsJoinedByString:@"\n"]];
+    return out;
+}
+
 + (NSAttributedString *)render:(NSString *)markdown {
     NSMutableAttributedString *out = [[NSMutableAttributedString alloc] init];
     if (!markdown.length) return out;

@@ -15,6 +15,7 @@
 #import "GMGitHubReposViewController.h"
 #import "GMProviderListViewController.h"
 #import "GMProviderStore.h"
+#import "GMUsageViewController.h"
 
 static NSString *const kCell = @"gs";
 
@@ -93,6 +94,8 @@ static NSString *const kCell = @"gs";
               @"tint": UIColor.systemPurpleColor, @"act": @"protect"},
             @{@"t": @"Skills 与扩展", @"s": [self skillsSummary], @"icon": @"puzzlepiece.fill",
               @"tint": UIColor.systemBlueColor, @"act": @"skills"},
+            @{@"t": @"用量统计", @"s": [self usageSummary], @"icon": @"chart.bar.fill",
+              @"tint": UIColor.systemGreenColor, @"act": @"usage"},
             @{@"t": @"文件浏览", @"s": @"浏览设备文件", @"icon": @"folder.fill",
               @"tint": UIColor.systemBlueColor, @"act": @"files"},
             @{@"t": @"存储", @"s": [self storageSummary], @"icon": @"externaldrive.fill",
@@ -195,6 +198,14 @@ static NSString *const kCell = @"gs";
             [self alert:[NSString stringWithFormat:@"已切换到 Codex 运行时\n\n%@\n\n首次对话会自动启动并握手（约 3-10 秒）。", bin]];
         });
     }];
+}
+
+- (NSString *)usageSummary {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    long long in = [[d objectForKey:@"gm.tokens.today.in"] longLongValue];
+    long long out = [[d objectForKey:@"gm.tokens.today.out"] longLongValue];
+    if (in + out == 0) return @"今日暂无使用";
+    return [NSString stringWithFormat:@"今日 ↑%lld ↓%lld", in, out];
 }
 
 - (NSString *)subagentSummary {
@@ -311,6 +322,8 @@ static NSString *const kCell = @"gs";
         [self chooseDisplay];
     } else if ([act isEqualToString:@"agentName"]) {
         [self editAgentName];
+    } else if ([act isEqualToString:@"usage"]) {
+        [self.navigationController pushViewController:[GMUsageViewController new] animated:YES];
     } else if ([act isEqualToString:@"files"]) {
         [self.navigationController pushViewController:
             [[GMFilesViewController alloc] initWithPath:@"/var/mobile"] animated:YES];

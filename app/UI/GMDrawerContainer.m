@@ -3,6 +3,7 @@
 #import "GMConversation.h"
 #import "GMSessionStore.h"
 #import "GMLog.h"
+#import "GMUsageViewController.h"
 
 static const CGFloat kSidebarRatio = 0.78;   // 侧边栏占屏宽比例
 static const CGFloat kCorner = 24.0;
@@ -352,12 +353,7 @@ static const CGFloat kCorner = 24.0;
 }
 
 - (void)openUsage {
-    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
-    long long in = [[d objectForKey:@"gm.tokens.in"] longLongValue];
-    long long out = [[d objectForKey:@"gm.tokens.out"] longLongValue];
-    [self alert:[NSString stringWithFormat:
-                 @"用量统计\n\n输入 tokens：%lld\n输出 tokens：%lld\n合计：%lld\n\n"
-                 @"金额折算需接入汇率（下一阶段开放）。", in, out, in + out]];
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"gm.openUsage" object:nil];
 }
 
 - (void)openSettings {

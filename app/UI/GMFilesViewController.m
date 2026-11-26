@@ -3,7 +3,11 @@
 #import "GMLog.h"
 
 @interface GMFilesViewController ()
+@property (nonatomic, copy) void (^onPick)(NSString *path);
+@property (nonatomic) BOOL pickerMode;
 @property (nonatomic, copy) NSString *path;
+@property (nonatomic, copy) NSString *editingPath;
+@property (nonatomic, strong) UITextView *editingView;
 @property (nonatomic, strong) UITableView *tableView;
 @property (nonatomic, strong) NSArray<NSDictionary *> *items;
 @end
@@ -17,14 +21,38 @@
     return self;
 }
 
+- (instancetype)initAsPicker:(void (^)(NSString *))onPick {
+    if ((self = [super initWithNibName:nil bundle:nil])) {
+        _path = @"/var/mobile";
+        _onPick = [onPick copy];
+        _pickerMode = YES;
+    }
+    return self;
+}
+
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.title = self.path.lastPathComponent.length ? self.path.lastPathComponent : @"/";
     self.view.backgroundColor = UIColor.systemGroupedBackgroundColor;
-    self.navigationItem.rightBarButtonItem =
-        [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"doc.on.doc"]
-                                         style:UIBarButtonItemStylePlain
-                                        target:self action:@selector(copyPath)];
+    if (self.pickerMode) {
+        self.navigationItem.rightBarButtonItems = @[
+            [[UIBarButtonItem alloc] initWithTitle:@"选择此目录"
+                                             style:UIBarButtonItemStyleDone
+                                            target:self action:@selector(confirmPick)],
+            [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"chevron.up"]
+                                             style:UIBarButtonItemStylePlain
+                                            target:self action:@selector(goUp)],
+        ];
+    } else {
+        self.navigationItem.rightBarButtonItems = @[
+            [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"doc.on.doc"]
+                                             style:UIBarButtonItemStylePlain
+                                            target:self action:@selector(copyPath)],
+            [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"chevron.up"]
+                                             style:UIBarButtonItemStylePlain
+                                            target:self action:@selector(goUp)],
+        ];
+    }
 
     self.tableView = [[UITableView alloc] initWithFrame:self.view.bounds style:UITableViewStyleInsetGrouped];
     self.tableView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
@@ -54,6 +82,18 @@
     self.items = rows;
     self.title = self.path.lastPathComponent.length ? self.path.lastPathComponent : @"/";
     [self.tableView reloadData];
+}
+
+- (void)goUp {
+    NSString *parent = [self.path stringByDeletingLastPathComponent];
+    if (!parent.length || [parent isEqualToString:self.path]) return;
+    [self.navigationController pushViewController:[[GMFilesViewController alloc] initWithPath:parent]
+                                         animated:YES];
+}
+
+- (void)confirmPick {
+    if (self.onPick) self.onPick(self.path);
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
 - (void)copyPath {
@@ -93,6 +133,22 @@
     return c;
 }
 
+- (void)saveCurrentFile {
+    if (!self.editingPath.length || !self.editingView) return;
+    NSError *e = nil;
+    [self.editingView.text writeToFile:self.editingPath
+                            atomically:YES
+                              encoding:NSUTF8StringEncoding
+                                 error:&e];
+    UIViewController *top = self.navigationController.topViewController;
+    UIAlertController *a = [UIAlertController
+        alertControllerWithTitle:(e ? @"保存失败" : @"已保存")
+                         message:(e ? e.localizedDescription : self.editingPath)
+                  preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [top presentViewController:a animated:YES completion:nil];
+}
+
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
     if (ip.row >= self.items.count) return;
@@ -113,10 +169,16 @@
     vc.view.backgroundColor = UIColor.systemBackgroundColor;
     UITextView *tx = [[UITextView alloc] initWithFrame:vc.view.bounds];
     tx.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    tx.editable = NO;
+    tx.editable = YES;
     tx.text = content;
-    tx.font = [UIFont monospacedSystemFontOfSize:11 weight:UIFontWeightRegular];
+    tx.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular];
+    tx.tag = 4444;
     [vc.view addSubview:tx];
+    self.editingPath = r[@"path"];
+    self.editingView = tx;
+    vc.navigationItem.rightBarButtonItem =
+        [[UIBarButtonItem alloc] initWithTitle:@"保存" style:UIBarButtonItemStyleDone
+                                        target:self action:@selector(saveCurrentFile)];
     [self.navigationController pushViewController:vc animated:YES];
 }
 

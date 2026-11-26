@@ -6,10 +6,14 @@
 #import "GMSessionListViewController.h"
 #import "GMSessionStore.h"
 #import "GMMarkdown.h"
+#import "GMRingView.h"
+#import "GMUsageViewController.h"
 
 @interface GMChatCell : UITableViewCell
 @property (nonatomic, strong) UITextView *bodyView;
 @property (nonatomic, strong) UILabel *metaLabel;
+@property (nonatomic, strong) UIButton *copyButton;
+@property (nonatomic, copy) void (^onCopy)(void);
 @end
 
 @implementation GMChatCell
@@ -33,6 +37,17 @@
         _metaLabel.translatesAutoresizingMaskIntoConstraints = NO;
         [self.contentView addSubview:_metaLabel];
         [self.contentView addSubview:_bodyView];
+
+        _copyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _copyButton.translatesAutoresizingMaskIntoConstraints = NO;
+        [_copyButton setTitle:@"复制代码" forState:UIControlStateNormal];
+        _copyButton.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+        _copyButton.backgroundColor = UIColor.tertiarySystemFillColor;
+        _copyButton.layer.cornerRadius = 6;
+        _copyButton.contentEdgeInsets = UIEdgeInsetsMake(2, 8, 2, 8);
+        _copyButton.hidden = YES;
+        [_copyButton addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
+        [self.contentView addSubview:_copyButton];
         [NSLayoutConstraint activateConstraints:@[
             [_metaLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:10],
             [_metaLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
@@ -40,11 +55,21 @@
             [_bodyView.topAnchor constraintEqualToAnchor:_metaLabel.bottomAnchor constant:4],
             [_bodyView.leadingAnchor constraintEqualToAnchor:_metaLabel.leadingAnchor],
             [_bodyView.trailingAnchor constraintEqualToAnchor:_metaLabel.trailingAnchor],
-            [_bodyView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
+            [_copyButton.leadingAnchor constraintEqualToAnchor:_bodyView.leadingAnchor],
+            [_copyButton.topAnchor constraintEqualToAnchor:_bodyView.bottomAnchor constant:6],
+            [_copyButton.heightAnchor constraintEqualToConstant:24],
+            [_copyButton.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
         ]];
     }
     return self;
 }
+
+- (void)copyTapped { if (self.onCopy) self.onCopy(); }
+
+- (void)layoutSubviews {
+    [super layoutSubviews];
+}
+
 @end
 
 @interface GMChatViewController () <UITableViewDataSource, UITableViewDelegate, UITextViewDelegate, GMConversationDelegate>
@@ -55,6 +80,7 @@
 @property (nonatomic, strong) UIView *composer;
 @property (nonatomic, strong) NSLayoutConstraint *composerBottom;
 @property (nonatomic) BOOL generating;
+@property (nonatomic, strong) GMRingView *contextRing;
 @property (nonatomic) NSTimeInterval lastReload;
 @property (nonatomic) NSInteger lastCount;
 @end
@@ -91,6 +117,7 @@
         [box addSubview:sub];
         box;
     });
+    [self setupContextRing];
     [self updateTokenLabel];
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     self.navigationItem.leftBarButtonItem =
@@ -101,6 +128,9 @@
     [NSNotificationCenter.defaultCenter addObserver:self
                                           selector:@selector(openSettings)
                                               name:@"gm.openSettings" object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self
+                                          selector:@selector(openUsagePage)
+                                              name:@"gm.openUsage" object:nil];
     self.navigationItem.rightBarButtonItem =
         [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"gearshape"]
                                          style:UIBarButtonItemStylePlain
@@ -200,6 +230,48 @@
     [self.conversation sendUserText:text];
 }
 
+- (void)setupContextRing {
+    GMRingView *ring = [[GMRingView alloc] initWithFrame:CGRectMake(0, 0, 26, 26)];
+    ring.lineWidth = 2.5;
+    ring.progress = 0;
+    self.contextRing = ring;
+    UIBarButtonItem *item = [[UIBarButtonItem alloc] initWithCustomView:ring];
+    NSMutableArray *items = [self.navigationItem.rightBarButtonItems mutableCopy] ?: [NSMutableArray array];
+    [items insertObject:item atIndex:0];
+    self.navigationItem.rightBarButtonItems = items;
+}
+
+- (void)updateContextRing {
+    if (!self.contextRing) return;
+    long long in = self.conversation.totalInputTokens;
+    long long out = self.conversation.totalOutputTokens;
+    long long used = in + out;
+    long long window = [self contextWindowForModel];
+    if (window <= 0) { self.contextRing.progress = 0; return; }
+    CGFloat p = (CGFloat)used / (CGFloat)window;
+    self.contextRing.centerText = [NSString stringWithFormat:@"%lldk", (used / 1000)];
+    [self.contextRing setProgress:p animated:YES];
+}
+
+- (long long)contextWindowForModel {
+    NSString *m = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.model"] ?: @"";
+    NSDictionary *table = @{
+        @"gpt-5": @400000, @"gpt-5.1": @400000, @"gpt-5.2": @400000,
+        @"gpt-5.3-codex": @400000, @"gpt-5.4": @1050000, @"gpt-5.5": @1050000,
+        @"gpt-4.1": @1047576, @"gpt-4o": @128000,
+        @"deepseek-chat": @64000, @"deepseek-reasoner": @64000,
+        @"deepseek-v4-pro": @128000, @"deepseek-flash": @128000,
+        @"gemini-2.5-pro": @1048576, @"gemini-2.5-flash": @1048576,
+        @"kimi-k2-0905-preview": @256000, @"moonshot-v1-128k": @128000,
+        @"glm-4.6": @200000, @"glm-4-plus": @128000,
+        @"qwen3-max": @262144, @"qwen-plus": @131072,
+    };
+    for (NSString *k in table) {
+        if ([m hasPrefix:k]) return [table[k] longLongValue];
+    }
+    return 128000;   /* 兜底 */
+}
+
 - (void)updateTokenLabel {
     UILabel *sub = [self.navigationItem.titleView viewWithTag:777];
     if (!sub) return;
@@ -228,6 +300,10 @@
     [self.navigationController pushViewController:v animated:YES];
 }
 
+- (void)openUsagePage {
+    [self.navigationController pushViewController:[GMUsageViewController new] animated:YES];
+}
+
 - (void)openDev {
     [self.navigationController pushViewController:[GMDevViewController new] animated:YES];
 }
@@ -250,6 +326,7 @@
     self.generating = last.streaming;
     [self updateSendButton];
     [self updateTokenLabel];
+    [self updateContextRing];
     [self.table reloadData];
     NSInteger n = [self.table numberOfRowsInSection:0];
     if (n > 0) {
@@ -281,6 +358,8 @@
     switch (m.role) {
         case GMRoleUser: {
             cell.metaLabel.text = @"你";
+            cell.copyButton.hidden = YES;
+            cell.onCopy = nil;
             cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:m.text ?: @""
                 attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15],
                              NSForegroundColorAttributeName: UIColor.labelColor}];
@@ -335,6 +414,24 @@
                                  NSForegroundColorAttributeName: UIColor.secondaryLabelColor}]];
             }
             cell.bodyView.attributedText = body;
+            /* 有代码块 → 显示"复制代码" */
+            NSArray<NSString *> *codes = [GMMarkdown extractCodeBlocks:m.text ?: @""];
+            if (codes.count > 0) {
+                cell.copyButton.hidden = NO;
+                [cell.copyButton setTitle:(codes.count == 1 ? @"复制代码" :
+                                          [NSString stringWithFormat:@"复制代码（%lu 段）", (unsigned long)codes.count])
+                                 forState:UIControlStateNormal];
+                NSArray<NSString *> *copied = codes;
+                cell.onCopy = ^{
+                    NSString *all = [copied componentsJoinedByString:@"\n\n"];
+                    [UIPasteboard generalPasteboard].string = all;
+                    UIImpactFeedbackGenerator *h = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+                    [h impactOccurred];
+                };
+            } else {
+                cell.copyButton.hidden = YES;
+                cell.onCopy = nil;
+            }
             break;
         }
     }

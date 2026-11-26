@@ -242,6 +242,11 @@ static NSString *GMFriendlyError(NSString *raw) {
             NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
             [d setObject:@(_totalInputTokens) forKey:@"gm.tokens.in"];
             [d setObject:@(_totalOutputTokens) forKey:@"gm.tokens.out"];
+            /* 今日增量 */
+            long long ti = [[d objectForKey:@"gm.tokens.today.in"] longLongValue] + [pp[@"inputTokens"] longLongValue];
+            long long to = [[d objectForKey:@"gm.tokens.today.out"] longLongValue] + [pp[@"outputTokens"] longLongValue];
+            [d setObject:@(ti) forKey:@"gm.tokens.today.in"];
+            [d setObject:@(to) forKey:@"gm.tokens.today.out"];
         }
     }
     NSString *method = n[@"method"];
