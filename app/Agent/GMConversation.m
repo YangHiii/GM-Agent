@@ -154,6 +154,8 @@ static NSString *GMFriendlyError(NSString *raw) {
         NSString *k2 = [ud stringForKey:@"gm.apiKey"];
         if (b2.length) tp[@"baseURL"] = b2;
         if (k2.length) tp[@"apiKey"] = k2;
+        NSString *gi = [ud stringForKey:@"gm.globalInstruction"];
+        if (gi.length) tp[@"instruction"] = gi;
         [strongSelf.bridge call:@"gm/turn/start"
                          params:tp
                           reply:^(id result, NSError *error) {

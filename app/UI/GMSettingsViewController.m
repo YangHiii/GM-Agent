@@ -5,6 +5,11 @@
 #import "GMDevViewController.h"
 #import "GMSessionStore.h"
 #import "GMLog.h"
+#import "GMSubagentViewController.h"
+#import "GMGitHubViewController.h"
+#import "GMCompileProtectViewController.h"
+#import "GMSkillsViewController.h"
+#import "GMDiagnosticsViewController.h"
 
 static NSString *const kCell = @"gs";
 
@@ -34,6 +39,12 @@ static NSString *const kCell = @"gs";
     [self buildGroups];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self buildGroups];
+    [self.tableView reloadData];
+}
+
 - (void)buildGroups {
     NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
     NSString *provider = [d stringForKey:@"gm.providerName"] ?: ([d stringForKey:@"gm.baseURL"] ?: @"未配置");
@@ -46,13 +57,13 @@ static NSString *const kCell = @"gs";
         @[
             @{@"t": @"AI 账号", @"s": provider, @"icon": @"sparkles", @"tint": UIColor.systemBlueColor,
               @"act": @"ai"},
-            @{@"t": @"子代理", @"s": @"未启用", @"icon": @"person.2.fill", @"tint": UIColor.systemOrangeColor,
-              @"act": @"soon"},
+            @{@"t": @"子代理", @"s": [self subagentSummary], @"icon": @"person.2.fill",
+              @"tint": UIColor.systemOrangeColor, @"act": @"subagent"},
         ],
         // 账号与集成
         @[
-            @{@"t": @"GitHub 账号管理", @"s": @"未连接", @"icon": @"chevron.left.forwardslash.chevron.right",
-              @"tint": UIColor.systemBlueColor, @"act": @"soon"},
+            @{@"t": @"GitHub 账号管理", @"s": [self githubSummary], @"icon": @"chevron.left.forwardslash.chevron.right",
+              @"tint": UIColor.systemBlueColor, @"act": @"github"},
         ],
         // 聊天与外观
         @[
@@ -62,23 +73,22 @@ static NSString *const kCell = @"gs";
               @"icon": @"arrow.up.arrow.down.square.fill", @"tint": UIColor.systemIndigoColor, @"act": @"display"},
             @{@"t": @"智能体", @"s": agentName,
               @"icon": @"person.crop.circle.fill", @"tint": UIColor.systemRedColor, @"act": @"agentName"},
-            @{@"t": @"有趣文案动画", @"s": @"四角轮询",
-              @"icon": @"square.grid.3x3.fill", @"tint": UIColor.systemOrangeColor, @"act": @"soon"},
+
         ],
         // 能力与工具
         @[
             @{@"t": @"开发能力", @"s": @"Codex / Theos / 工具链",
               @"icon": @"terminal.fill", @"tint": UIColor.systemTealColor, @"act": @"dev"},
-            @{@"t": @"编译保护", @"s": @"普通", @"icon": @"shield.lefthalf.filled",
-              @"tint": UIColor.systemPurpleColor, @"act": @"soon"},
-            @{@"t": @"Skills 与扩展", @"s": @"暂无", @"icon": @"puzzlepiece.fill",
-              @"tint": UIColor.systemBlueColor, @"act": @"soon"},
+            @{@"t": @"编译保护", @"s": [self protectSummary], @"icon": @"shield.lefthalf.filled",
+              @"tint": UIColor.systemPurpleColor, @"act": @"protect"},
+            @{@"t": @"Skills 与扩展", @"s": [self skillsSummary], @"icon": @"puzzlepiece.fill",
+              @"tint": UIColor.systemBlueColor, @"act": @"skills"},
             @{@"t": @"存储", @"s": [self storageSummary], @"icon": @"externaldrive.fill",
               @"tint": UIColor.systemGrayColor, @"act": @"storage"},
         ],
         // 帮助与诊断
         @[
-            @{@"t": @"运行诊断", @"s": @"检查环境与能力", @"icon": @"waveform.path.ecg",
+            @{@"t": @"运行诊断", @"s": @"逐项检查环境与能力", @"icon": @"waveform.path.ecg",
               @"tint": UIColor.systemRedColor, @"act": @"diag"},
             @{@"t": @"日志", @"s": @"启动与运行日志", @"icon": @"doc.text.fill",
               @"tint": UIColor.systemGrayColor, @"act": @"log"},
@@ -87,6 +97,35 @@ static NSString *const kCell = @"gs";
               @"icon": @"info.circle.fill", @"tint": UIColor.systemBlueColor, @"act": @"about"},
         ],
     ];
+}
+
+- (NSString *)subagentSummary {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    if ([[d stringForKey:@"gm.subagent.modelMode"] ?: @"follow" isEqualToString:@"follow"]) return @"跟随主代理";
+    return [d stringForKey:@"gm.subagent.model"] ?: @"自定义";
+}
+
+- (NSString *)githubSummary {
+    NSString *login = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.github.login"];
+    return login.length ? login : @"未连接";
+}
+
+- (NSString *)protectSummary {
+    NSUserDefaults *d = [NSUserDefaults standardUserDefaults];
+    BOOL strong = [[d stringForKey:@"gm.protect.mode"] ?: @"normal" isEqualToString:@"strong"];
+    return strong ? @"强加密" : @"普通";
+}
+
+- (NSString *)skillsSummary {
+    NSString *lib = NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES).firstObject;
+    NSArray *s = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:
+                  [lib stringByAppendingPathComponent:@"Skills"] error:nil];
+    NSString *g = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.globalInstruction"];
+    BOOL hasG = g.length > 0;
+    if (s.count == 0 && !hasG) return @"暂无";
+    if (s.count && hasG) return [NSString stringWithFormat:@"%lu 个 Skills · 有全局指令", (unsigned long)s.count];
+    if (s.count) return [NSString stringWithFormat:@"%lu 个 Skills", (unsigned long)s.count];
+    return @"已配置全局指令";
 }
 
 - (NSString *)storageSummary {
@@ -143,8 +182,18 @@ static NSString *const kCell = @"gs";
     if ([act isEqualToString:@"ai"]) {
         [self.navigationController pushViewController:
             [[GMAIAccountViewController alloc] initWithConversation:self.conversation] animated:YES];
-    } else if ([act isEqualToString:@"dev"] || [act isEqualToString:@"diag"]) {
+    } else if ([act isEqualToString:@"dev"]) {
         [self.navigationController pushViewController:[GMDevViewController new] animated:YES];
+    } else if ([act isEqualToString:@"diag"]) {
+        [self.navigationController pushViewController:[GMDiagnosticsViewController new] animated:YES];
+    } else if ([act isEqualToString:@"subagent"]) {
+        [self.navigationController pushViewController:[GMSubagentViewController new] animated:YES];
+    } else if ([act isEqualToString:@"github"]) {
+        [self.navigationController pushViewController:[GMGitHubViewController new] animated:YES];
+    } else if ([act isEqualToString:@"protect"]) {
+        [self.navigationController pushViewController:[GMCompileProtectViewController new] animated:YES];
+    } else if ([act isEqualToString:@"skills"]) {
+        [self.navigationController pushViewController:[GMSkillsViewController new] animated:YES];
     } else if ([act isEqualToString:@"log"]) {
         [self showLog];
     } else if ([act isEqualToString:@"appearance"]) {
