@@ -12,6 +12,7 @@
 #import "GMDiagnosticsViewController.h"
 #import "GMBridge.h"
 #import "GMFilesViewController.h"
+#import "GMGitHubReposViewController.h"
 
 static NSString *const kCell = @"gs";
 
@@ -267,7 +268,12 @@ static NSString *const kCell = @"gs";
     } else if ([act isEqualToString:@"subagent"]) {
         [self.navigationController pushViewController:[GMSubagentViewController new] animated:YES];
     } else if ([act isEqualToString:@"github"]) {
-        [self.navigationController pushViewController:[GMGitHubViewController new] animated:YES];
+        NSString *login = [[NSUserDefaults standardUserDefaults] stringForKey:@"gm.github.login"];
+        if (login.length) {
+            [self.navigationController pushViewController:[GMGitHubReposViewController new] animated:YES];
+        } else {
+            [self.navigationController pushViewController:[GMGitHubViewController new] animated:YES];
+        }
     } else if ([act isEqualToString:@"protect"]) {
         [self.navigationController pushViewController:[GMCompileProtectViewController new] animated:YES];
     } else if ([act isEqualToString:@"skills"]) {

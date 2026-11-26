@@ -261,6 +261,11 @@ static void *engineThread(void *ctx) {
     }
     id method = msg[@"method"];
     if ([method isKindOfClass:[NSString class]]) {
+        if ([method hasPrefix:@"gm/event/subagent"]) {
+            [NSNotificationCenter.defaultCenter postNotificationName:@"gm.subagent"
+                                                              object:self
+                                                            userInfo:msg[@"params"]];
+        }
         if ([method hasPrefix:@"gm/event/runtime"]) {
             [NSNotificationCenter.defaultCenter postNotificationName:@"gm.runtime"
                                                               object:self

@@ -1,5 +1,6 @@
 // GM Agent · 子代理设置：模型 / 思考强度
 #import "GMSubagentViewController.h"
+#import "GMBridge.h"
 
 @interface GMSubagentViewController ()
 @property (nonatomic, strong) UITableView *tableView;
@@ -7,6 +8,7 @@
 @property (nonatomic, copy) NSString *model;
 @property (nonatomic, copy) NSString *effortMode;    // follow | custom
 @property (nonatomic, copy) NSString *effort;
+@property (nonatomic, copy) NSString *lastOutput;
 @end
 
 @implementation GMSubagentViewController
@@ -38,10 +40,10 @@
     [d synchronize];
 }
 
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 3; }
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 4; }
 
 - (NSString *)tableView:(UITableView *)tv titleForHeaderInSection:(NSInteger)s {
-    return @[@"默认行为", @"", @""][s];
+    return @[@"默认行为", @"", @"", @"立即执行"][s];
 }
 
 - (NSString *)tableView:(UITableView *)tv titleForFooterInSection:(NSInteger)s {
@@ -50,9 +52,10 @@
 }
 
 - (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
-    if (s == 0) return 1;                                    // 模型
-    if (s == 1) return 1;                                    // 思考强度
-    return 1;                                                // 恢复默认
+    if (s == 0) return 1;
+    if (s == 1) return 1;
+    if (s == 2) return 1;
+    return 2;   // 发起任务 / 最近结果
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
@@ -80,11 +83,22 @@
             ? @"跟随主代理" : [self effortDisplay:self.effort];
         c.detailTextLabel.textColor = UIColor.secondaryLabelColor;
         c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-    } else {
+    } else if (ip.section == 2) {
         c.textLabel.text = @"恢复跟随主代理";
         c.textLabel.textColor = UIColor.systemRedColor;
         c.detailTextLabel.text = nil;
         c.accessoryType = UITableViewCellAccessoryNone;
+    } else {
+        if (ip.row == 0) {
+            c.textLabel.text = @"发起子代理任务";
+            c.textLabel.textColor = UIColor.systemBlueColor;
+            c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        } else {
+            c.textLabel.text = @"查看最近结果";
+            c.detailTextLabel.text = self.lastOutput.length ? @"有结果" : @"无";
+            c.detailTextLabel.font = [UIFont systemFontOfSize:11];
+            c.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        }
     }
     return c;
 }
@@ -98,6 +112,11 @@
 - (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
     [tv deselectRowAtIndexPath:ip animated:YES];
 
+    if (ip.section == 3) {
+        if (ip.row == 0) [self startTask];
+        else [self showLastOutput];
+        return;
+    }
     if (ip.section == 2) {
         self.modelMode = @"follow";
         self.effortMode = @"follow";
@@ -153,6 +172,66 @@
         a.popoverPresentationController.sourceRect = CGRectMake(self.view.bounds.size.width / 2, 200, 1, 1);
         [self presentViewController:a animated:YES completion:nil];
     }
+}
+
+- (void)startTask {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"子代理任务"
+                                                            message:@"描述要让它探索/检索的内容"
+                                                     preferredStyle:UIAlertControllerStyleAlert];
+    [a addTextFieldWithConfigurationHandler:^(UITextField *tf) {
+        tf.placeholder = @"例如：统计当前工作区有多少个 .m 文件";
+    }];
+    [a addAction:[UIAlertAction actionWithTitle:@"开始" style:UIAlertActionStyleDefault handler:^(UIAlertAction *x) {
+        NSString *task = a.textFields.firstObject.text;
+        if (!task.length) return;
+        [[NSNotificationCenter defaultCenter] addObserver:self
+                                                 selector:@selector(subagentEvent:)
+                                                     name:@"gm.subagent" object:nil];
+        [[GMBridge shared] call:@"gm/subagent/run"
+                         params:@{@"task": task, @"model": [self modelMode].length ? self.model : @""}
+                          reply:^(id r, NSError *e) {
+            if (e) dispatch_async(dispatch_get_main_queue(), ^{
+                [self alert:[NSString stringWithFormat:@"启动失败：%@", e.localizedDescription]];
+            });
+        }];
+        [self alert:@"子代理已启动，完成后会提示。"];
+    }]];
+    [a addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
+}
+
+- (void)subagentEvent:(NSNotification *)note {
+    NSDictionary *p = note.userInfo;
+    NSString *phase = p[@"phase"];
+    if ([phase isEqualToString:@"done"]) {
+        self.lastOutput = p[@"output"];
+        [self.tableView reloadData];
+        [self alert:[NSString stringWithFormat:@"子代理完成：\n\n%@", p[@"output"] ?: @""]];
+    } else if ([phase isEqualToString:@"error"]) {
+        [self alert:[NSString stringWithFormat:@"子代理失败：%@", p[@"message"] ?: @""]];
+    }
+}
+
+- (void)showLastOutput {
+    if (!self.lastOutput.length) { [self alert:@"还没有结果"]; return; }
+    UIViewController *vc = [UIViewController new];
+    vc.title = @"子代理结果";
+    vc.view.backgroundColor = UIColor.systemBackgroundColor;
+    UITextView *tv = [[UITextView alloc] initWithFrame:vc.view.bounds];
+    tv.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    tv.editable = NO;
+    tv.text = self.lastOutput;
+    tv.font = [UIFont systemFontOfSize:13];
+    [vc.view addSubview:tv];
+    [self.navigationController pushViewController:vc animated:YES];
+}
+
+- (void)alert:(NSString *)msg {
+    UIAlertController *a = [UIAlertController alertControllerWithTitle:@"子代理"
+                                                             message:msg
+                                                      preferredStyle:UIAlertControllerStyleAlert];
+    [a addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:a animated:YES completion:nil];
 }
 
 - (void)askModel {

@@ -235,6 +235,40 @@ int gm_engine_main(int argc, char **argv) {
             out_write(res);
             gm_arena_free(&rb);
             free(err);
+        } else if (method && strcmp(method, "gm/subagent/run") == 0) {
+            const char *task = gm_str(gm_obj_get(params, "task"));
+            const char *m2 = gm_str(gm_obj_get(params, "model"));
+            reply(&g_turn, id, gm_val_true(&g_turn, 1), NULL);
+
+            /* 通知 UI：子代理开始 */
+            GMArena na;
+            gm_arena_init(&na, 16384);
+            GMPVal *n = gm_val_obj(&na);
+            GMPVal *pp = gm_val_obj(&na);
+            gm_obj_set(&na, pp, "phase", gm_val_str(&na, "start"));
+            gm_obj_set(&na, pp, "task", gm_val_str(&na, task ? task : ""));
+            gm_obj_set(&na, n, "method", gm_val_str(&na, "gm/event/subagent"));
+            gm_obj_set(&na, n, "params", pp);
+            out_write(n);
+            gm_arena_free(&na);
+
+            char *sout = NULL, *serr = NULL;
+            const char *useModel = (m2 && *m2) ? m2 : g_prov.model;
+            int src = gm_subagent_run(task, useModel, g_prov.base_url, g_prov.api_key, &sout, &serr);
+
+            GMArena rb;
+            gm_arena_init(&rb, 65536);
+            GMPVal *r2 = gm_val_obj(&rb);
+            GMPVal *rp = gm_val_obj(&rb);
+            gm_obj_set(&rb, rp, "phase", gm_val_str(&rb, src == 0 ? "done" : "error"));
+            gm_obj_set(&rb, rp, "task", gm_val_str(&rb, task ? task : ""));
+            if (src == 0) gm_obj_set(&rb, rp, "output", gm_val_str(&rb, sout ? sout : ""));
+            else gm_obj_set(&rb, rp, "message", gm_val_str(&rb, serr ? serr : "失败"));
+            gm_obj_set(&rb, r2, "method", gm_val_str(&rb, "gm/event/subagent"));
+            gm_obj_set(&rb, r2, "params", rp);
+            out_write(r2);
+            gm_arena_free(&rb);
+            free(sout); free(serr);
         } else if (method && strcmp(method, "gm/codex/status") == 0) {
             GMPVal *r = gm_val_obj(&g_turn);
             gm_obj_set(&g_turn, r, "available", gm_val_true(&g_turn, gm_codex_available()));

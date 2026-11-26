@@ -111,6 +111,11 @@ int gm_provider_chat(const GMProvider *p, const char *body_json,
                      double *in_tokens, double *out_tokens,
                      char **err_out);
 
+/* ---------------- 子代理 ---------------- */
+/* 用一次独立请求跑子任务，不污染主对话历史；结果写 out（malloc） */
+int gm_subagent_run(const char *task, const char *model, const char *base_url,
+                    const char *api_key, char **out, char **err);
+
 /* ---------------- 宿主工具（由 App 实现，引擎在同进程调用） ---------------- */
 typedef int (*GMHostToolFn)(const char *name, const char *args_json, char **out);
 void gm_set_host_tool_handler(GMHostToolFn fn);
