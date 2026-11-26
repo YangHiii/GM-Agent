@@ -12,7 +12,7 @@
 @interface GMChatCell : UITableViewCell
 @property (nonatomic, strong) UITextView *bodyView;
 @property (nonatomic, strong) UILabel *metaLabel;
-@property (nonatomic, strong) UIButton *copyCodeButton;
+@property (nonatomic, strong) UIButton *codeCopyButton;
 @property (nonatomic, copy) void (^onCopy)(void);
 @end
 
@@ -38,16 +38,16 @@
         [self.contentView addSubview:_metaLabel];
         [self.contentView addSubview:_bodyView];
 
-        _copyCodeButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        _copyCodeButton.translatesAutoresizingMaskIntoConstraints = NO;
-        [_copyCodeButton setTitle:@"复制代码" forState:UIControlStateNormal];
-        _copyCodeButton.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
-        _copyCodeButton.backgroundColor = UIColor.tertiarySystemFillColor;
-        _copyCodeButton.layer.cornerRadius = 6;
-        _copyCodeButton.contentEdgeInsets = UIEdgeInsetsMake(2, 8, 2, 8);
-        _copyCodeButton.hidden = YES;
-        [_copyCodeButton addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
-        [self.contentView addSubview:_copyCodeButton];
+        _codeCopyButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _codeCopyButton.translatesAutoresizingMaskIntoConstraints = NO;
+        [_codeCopyButton setTitle:@"复制代码" forState:UIControlStateNormal];
+        _codeCopyButton.titleLabel.font = [UIFont systemFontOfSize:11 weight:UIFontWeightMedium];
+        _codeCopyButton.backgroundColor = UIColor.tertiarySystemFillColor;
+        _codeCopyButton.layer.cornerRadius = 6;
+        _codeCopyButton.contentEdgeInsets = UIEdgeInsetsMake(2, 8, 2, 8);
+        _codeCopyButton.hidden = YES;
+        [_codeCopyButton addTarget:self action:@selector(copyTapped) forControlEvents:UIControlEventTouchUpInside];
+        [self.contentView addSubview:_codeCopyButton];
         [NSLayoutConstraint activateConstraints:@[
             [_metaLabel.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:10],
             [_metaLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:16],
@@ -55,10 +55,10 @@
             [_bodyView.topAnchor constraintEqualToAnchor:_metaLabel.bottomAnchor constant:4],
             [_bodyView.leadingAnchor constraintEqualToAnchor:_metaLabel.leadingAnchor],
             [_bodyView.trailingAnchor constraintEqualToAnchor:_metaLabel.trailingAnchor],
-            [_copyCodeButton.leadingAnchor constraintEqualToAnchor:_bodyView.leadingAnchor],
-            [_copyCodeButton.topAnchor constraintEqualToAnchor:_bodyView.bottomAnchor constant:6],
-            [_copyCodeButton.heightAnchor constraintEqualToConstant:24],
-            [_copyCodeButton.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
+            [_codeCopyButton.leadingAnchor constraintEqualToAnchor:_bodyView.leadingAnchor],
+            [_codeCopyButton.topAnchor constraintEqualToAnchor:_bodyView.bottomAnchor constant:6],
+            [_codeCopyButton.heightAnchor constraintEqualToConstant:24],
+            [_codeCopyButton.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-10],
         ]];
     }
     return self;
@@ -358,7 +358,7 @@
     switch (m.role) {
         case GMRoleUser: {
             cell.metaLabel.text = @"你";
-            cell.copyCodeButton.hidden = YES;
+            cell.codeCopyButton.hidden = YES;
             cell.onCopy = nil;
             cell.bodyView.attributedText = [[NSAttributedString alloc] initWithString:m.text ?: @""
                 attributes:@{NSFontAttributeName: [UIFont systemFontOfSize:15],
@@ -417,8 +417,8 @@
             /* 有代码块 → 显示"复制代码" */
             NSArray<NSString *> *codes = [GMMarkdown extractCodeBlocks:m.text ?: @""];
             if (codes.count > 0) {
-                cell.copyCodeButton.hidden = NO;
-                [cell.copyCodeButton setTitle:(codes.count == 1 ? @"复制代码" :
+                cell.codeCopyButton.hidden = NO;
+                [cell.codeCopyButton setTitle:(codes.count == 1 ? @"复制代码" :
                                           [NSString stringWithFormat:@"复制代码（%lu 段）", (unsigned long)codes.count])
                                  forState:UIControlStateNormal];
                 NSArray<NSString *> *copied = codes;
@@ -429,7 +429,7 @@
                     [h impactOccurred];
                 };
             } else {
-                cell.copyCodeButton.hidden = YES;
+                cell.codeCopyButton.hidden = YES;
                 cell.onCopy = nil;
             }
             break;
